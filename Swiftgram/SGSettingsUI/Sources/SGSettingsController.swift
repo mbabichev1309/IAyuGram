@@ -29,6 +29,7 @@ private enum SGControllerSection: Int32, SGItemListSection {
     case search
     case trending
     case content
+    case ghostMode
     case tabs
     case folders
     case chatList
@@ -106,6 +107,7 @@ private enum SGBoolSetting: String {
     case nyStyleSnow
     case nyStyleLightning
     case tabBarSearchEnabled
+    case ghostMode
 }
 
 private enum SGOneFromManySetting: String {
@@ -167,7 +169,11 @@ private func SGControllerEntries(presentationData: PresentationData, callListSet
     } else {
         id.increment(1)
     }
-    
+
+    entries.append(.header(id: id.count, section: .ghostMode, text: "GHOST MODE", badge: nil))
+    entries.append(.toggle(id: id.count, section: .ghostMode, settingName: .ghostMode, value: SGSimpleSettings.shared.ghostMode, text: "Ghost Mode", enabled: true))
+    entries.append(.notice(id: id.count, section: .ghostMode, text: "Read messages and listen to voice notes without sending read receipts. Stay invisible — don't appear online and never send typing indicators."))
+
     entries.append(.header(id: id.count, section: .tabs, text: i18n("Settings.Tabs.Header", lang), badge: nil))
     entries.append(.toggle(id: id.count, section: .tabs, settingName: .hideTabBar, value: SGSimpleSettings.shared.hideTabBar, text: i18n("Settings.Tabs.HideTabBar", lang), enabled: true))
     entries.append(.toggle(id: id.count, section: .tabs, settingName: .showContactsTab, value: callListSettings.showContactsTab, text: i18n("Settings.Tabs.ShowContacts", lang), enabled: !SGSimpleSettings.shared.hideTabBar))
@@ -521,6 +527,8 @@ public func sgSettingsController(context: AccountContext/*, focusOnItemTag: Int?
         case .nyStyleLightning:
             SGSimpleSettings.shared.nyStyle = value ? SGSimpleSettings.NYStyle.lightning.rawValue : SGSimpleSettings.NYStyle.default.rawValue
             simplePromise.set(true) // Trigger update for 'enabled' field of other toggles
+        case .ghostMode:
+            SGSimpleSettings.shared.ghostMode = value
         }
     }, updateSliderValue: { setting, value in
         switch (setting) {
