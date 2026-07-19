@@ -91,6 +91,15 @@ jobs:
           done
           zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null || true
 
+      # Safety net: attach the ipa to the run itself, independent of the Release steps.
+      # Even if creating the GitHub Release fails, the ipa stays downloadable from this run.
+      - name: Upload ipa as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-ipa
+          path: /Users/Shared/telegram-ios/build/artifacts/*.ipa
+          if-no-files-found: error
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
