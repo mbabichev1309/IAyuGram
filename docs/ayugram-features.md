@@ -133,6 +133,85 @@ gap-fill (this is the #1 bug of such features):
 
 Out of initial scope: `.DeleteMessagesWithGlobalIds` (`:4412`, secret/outgoing).
 
+#### `markMessagesDeletedLocally`
+
+The whole point is to keep the message **byte-for-byte** and change only the
+attribute list. Rebuild the `StoreMessage` carrying every field verbatim (same
+idiom as `MarkMessageContentAsConsumedInteractively.swift`), appending our
+attribute:
+
+```swift
+import Postbox
+
+func markMessagesDeletedLocally(transaction: Transaction, ids: [MessageId]) {
+    // Match the codebase's "now" idiom (not Date()).
+    let now = Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970)
+
+    for id in ids {
+        guard let message = transaction.getMessage(id) else {
+            continue // nothing to preserve
+        }
+        // Idempotent: the same delete update can be replayed; don't double-mark.
+        if message.attributes.contains(where: { $0 is LocalMessageDeletedAttribute }) {
+            continue
+        }
+        // TODO (caveat 2.5.1): skip IDs you deleted yourself (own "delete for everyone"
+        // echoes back through this same update). Check a recently-locally-deleted set here.
+
+        transaction.updateMessage(id, update: { currentMessage in
+            var attributes = currentMessage.attributes
+            attributes.append(LocalMessageDeletedAttribute(deletedAt: now))
+
+            // forwardInfo must be re-wrapped into its Store* form; carry every subfield.
+            var storeForwardInfo: StoreMessageForwardInfo?
+            if let forwardInfo = currentMessage.forwardInfo {
+                storeForwardInfo = StoreMessageForwardInfo(
+                    authorId: forwardInfo.author?.id,
+                    sourceId: forwardInfo.source?.id,
+                    sourceMessageId: forwardInfo.sourceMessageId,
+                    date: forwardInfo.date,
+                    authorSignature: forwardInfo.authorSignature,
+                    psaType: forwardInfo.psaType,
+                    flags: forwardInfo.flags
+                )
+            }
+
+            // Everything below is copied as-is; only `attributes` changed.
+            return .update(StoreMessage(
+                id: currentMessage.id,
+                customStableId: nil,                       // Postbox keeps the stable id itself
+                globallyUniqueId: currentMessage.globallyUniqueId,
+                groupingKey: currentMessage.groupingKey,   // album grouping
+                threadId: currentMessage.threadId,
+                timestamp: currentMessage.timestamp,       // keep original position in history
+                flags: StoreMessageFlags(currentMessage.flags),
+                tags: currentMessage.tags,
+                globalTags: currentMessage.globalTags,
+                localTags: currentMessage.localTags,
+                forwardInfo: storeForwardInfo,
+                authorId: currentMessage.author?.id,
+                text: currentMessage.text,
+                attributes: attributes,                    // <-- the only change
+                media: currentMessage.media                // keep media descriptor (bytes stay in MediaBox)
+            ))
+        })
+    }
+}
+```
+
+Why carry each field verbatim: dropping or altering any of them (timestamp,
+flags, tags, grouping, forwardInfo, media…) would silently mutate the
+preserved message — wrong position, broken album, lost forward header, etc.
+The safe rule is "copy all, change one."
+
+**What we deliberately DON'T do** — the work `_internal_deleteMessages` would
+have done (unread-count decrement, tag summaries, thread stats, reply-reference
+and media cleanup). Because we **keep the row**, the message genuinely still
+exists, so counters/stats stay internally consistent on their own — we do NOT
+need to replicate that cleanup. The real risks are elsewhere: resync
+re-deletion (gate `HistoryViewStateValidation` above) and own-deletion dedup
+(caveat 2.5.1) — not counter drift.
+
 ### 2.3 Seam 2 — edit
 
 Edits arrive as `updateEditMessage` (`AccountStateManagementUtils.swift:1052`),
@@ -252,6 +331,47 @@ Synergy with Ghost Mode: the consume receipt is already suppressed
   consume path.
 - Unread-counter behaviour when suppressing network reads (1.2 caveat).
 - `_internal_deleteMessages` side-effects when skipped (2.5.2).
+
+## Appendix A — Adding a local `MessageAttribute`
+
+A `MessageAttribute` is a Postbox-serialized object attached to a message.
+Local-only attributes (never sent to the network) are the mechanism for
+class B. To add one:
+
+1. **Write the class** in
+   `submodules/TelegramCore/Sources/SyncCore/SyncCore_<Name>.swift`, conforming
+   to `MessageAttribute` with `init(decoder:)` + `encode(_:)`. Use short string
+   keys (`"dl"`, `"d"`…) to save DB space. Model on
+   `SyncCore_EditedMessageAttribute.swift`.
+   ```swift
+   import Foundation
+   import Postbox
+
+   public class LocalMessageDeletedAttribute: MessageAttribute {
+       public let deletedAt: Int32
+       public init(deletedAt: Int32) { self.deletedAt = deletedAt }
+       required public init(decoder: PostboxDecoder) {
+           self.deletedAt = decoder.decodeInt32ForKey("dl", orElse: 0)
+       }
+       public func encode(_ encoder: PostboxEncoder) {
+           encoder.encodeInt32(self.deletedAt, forKey: "dl")
+       }
+   }
+   ```
+2. **Register it for decoding** — add one line to the `declaredEncodables`
+   block in `submodules/TelegramCore/Sources/Account/AccountManager.swift:88`:
+   ```swift
+   declareEncodable(LocalMessageDeletedAttribute.self, f: { LocalMessageDeletedAttribute(decoder: $0) })
+   ```
+   **Skipping this crashes on decode.** Not optional.
+3. **Attach / read** it via `transaction.updateMessage(id) { … .update(StoreMessage(…)) }`
+   (see `markMessagesDeletedLocally` in 2.2) and `message.attributes`.
+4. A **local-only** attribute needs **no API parsing** (`ApiUtils/…`) — we
+   construct it ourselves; unlike server attributes it is never decoded from TL.
+5. **Format stability:** Postbox keys the type by the **class name**, and fields
+   by their string keys. Once messages carrying it exist in the DB, do **not**
+   rename the class or change the keys, or old rows fail to decode (read as
+   defaults / lost).
 
 ## References
 
