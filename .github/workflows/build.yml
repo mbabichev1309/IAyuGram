@@ -74,9 +74,10 @@ jobs:
           OUTPUT_PATH="build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
-          IPA_PATH=$(find -L bazel-out -type f -name 'Telegram.ipa' -path '*/bin/Telegram/*' | head -n 1)
+          # the product is named Swiftgram.ipa in this fork; skip the .runfiles duplicate
+          IPA_PATH=$(find -L bazel-out -type f -name '*.ipa' -path '*/bin/Telegram/*' ! -path '*.runfiles/*' | head -n 1)
           if [ -z "$IPA_PATH" ]; then
-            echo "Telegram.ipa not found under the expected path. All .ipa files:"
+            echo "No .ipa found under the expected path. All .ipa files:"
             find -L bazel-out -name '*.ipa' || true
             exit 1
           fi
@@ -85,7 +86,7 @@ jobs:
 
           # collect dsym
           mkdir -p build/DSYMs
-          for d in $(find -L bazel-out -type d -name '*.dSYM' -path '*/bin/Telegram/*'); do
+          for d in $(find -L bazel-out -type d -name '*.dSYM' -path '*/bin/Telegram/*' ! -path '*.runfiles/*'); do
             cp -R "$d" build/DSYMs/
           done
           zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null || true
