@@ -8,7 +8,8 @@ on:
 
 jobs:
   build:
-    runs-on: macos-13
+    # Apple Silicon (M-series) runner — required for the Xcode version in versions.json
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v2
@@ -18,8 +19,18 @@ jobs:
 
       - name: Set active Xcode path
         run: |
+          set -x
           XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
-          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+          XCODE_APP="/Applications/Xcode_$XCODE_VERSION.app"
+          if [ ! -d "$XCODE_APP" ]; then
+            echo "Xcode $XCODE_VERSION not found on this runner. Available Xcode installs:"
+            ls -d /Applications/Xcode*.app || true
+            # fall back to the newest Xcode present on the runner
+            XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
+            echo "Falling back to $XCODE_APP"
+          fi
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
 
       - name: Create canonical source directory
         run: |
