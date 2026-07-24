@@ -90,13 +90,16 @@ jobs:
           #    then build signed, extensions disabled (single profile)
           python3 build-system/Make/ImportCertificates.py --path build-system/real-codesigning/certs
           echo "=== signing identities in keychain ==="; security find-identity -v || true
+          # disableExtensions is a bazel bool_flag (Telegram/BUILD), not a build
+          # subcommand arg → pass it via global --bazelArguments so only the main
+          # app is built/signed (we have a single provisioning profile).
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
             --overrideXcodeVersion \
+            --bazelArguments="--//Telegram:disableExtensions=True" \
             build \
             --configurationPath="build-system/development_configuration.json" \
             --codesigningInformationPath=build-system/real-codesigning \
-            --disableExtensions \
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
 
