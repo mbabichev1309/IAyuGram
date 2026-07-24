@@ -24,17 +24,6 @@ jobs:
           submodules: 'recursive'
           fetch-depth: '0'
 
-      # Persist the Bazel disk cache across runs so incremental builds are fast.
-      # First run is a full (~50 min) build that populates it; later runs reuse
-      # unchanged actions (Swift module compiles etc.) and finish much faster.
-      - name: Cache Bazel disk cache
-        uses: actions/cache@v4
-        with:
-          path: ~/bazel-disk-cache
-          key: bazel-disk-${{ github.run_id }}
-          restore-keys: |
-            bazel-disk-
-
       - name: Set active Xcode path
         run: |
           set -x
@@ -60,6 +49,7 @@ jobs:
           IOS_API_ID: ${{ secrets.IOS_API_ID }}
           IOS_API_HASH: ${{ secrets.IOS_API_HASH }}
           P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           set -x
           SOURCE_DIR=/Users/Shared/telegram-ios
@@ -101,13 +91,31 @@ jobs:
           #    then build signed, extensions disabled (single profile)
           python3 build-system/Make/ImportCertificates.py --path build-system/real-codesigning/certs
           echo "=== signing identities in keychain ==="; security find-identity -v || true
+          # BuildBuddy remote cache (shared across ephemeral runners; no 10GB
+          # GitHub-cache limit). Appended to .bazelrc so the bazel invoked by
+          # Make.py picks it up. Skipped if the secret is absent so the build
+          # still works without a cache.
+          if [ -n "$BUILDBUDDY_API_KEY" ]; then
+            set +x
+            {
+              echo "build --remote_cache=grpcs://remote.buildbuddy.io"
+              echo "build --remote_header=x-buildbuddy-api-key=${BUILDBUDDY_API_KEY}"
+              echo "build --remote_timeout=10m"
+              echo "build --bes_backend=grpcs://remote.buildbuddy.io"
+              echo "build --bes_results_url=https://app.buildbuddy.io/invocation/"
+            } >> .bazelrc
+            set -x
+            echo "BuildBuddy remote cache enabled"
+          else
+            echo "BUILDBUDDY_API_KEY not set — building without remote cache"
+          fi
+
           # --disableExtensions (added to Make.py build) sets the bazel
           # --//Telegram:disableExtensions=True flag so only the main app is
           # built/signed (we have a single provisioning profile).
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
             --overrideXcodeVersion \
-            --cacheDir="$HOME/bazel-disk-cache" \
             build \
             --configurationPath="build-system/development_configuration.json" \
             --codesigningInformationPath=build-system/real-codesigning \
