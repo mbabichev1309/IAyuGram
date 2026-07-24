@@ -48,6 +48,7 @@ jobs:
           IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
           IOS_API_ID: ${{ secrets.IOS_API_ID }}
           IOS_API_HASH: ${{ secrets.IOS_API_HASH }}
+          P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
         run: |
           set -x
           SOURCE_DIR=/Users/Shared/telegram-ios
@@ -85,19 +86,10 @@ jobs:
           echo "$IOS_P12_BASE64" | base64 --decode > build-system/real-codesigning/certs/dist.p12
           echo "$IOS_PROFILE_BASE64" | base64 --decode > build-system/real-codesigning/profiles/Telegram.mobileprovision
 
-          # --- P12 IMPORT DIAGNOSTIC (temporary) ---
-          echo "=== p12 openssl check ==="
-          openssl pkcs12 -info -in build-system/real-codesigning/certs/dist.p12 -passin pass: -legacy -noout 2>&1 | head -8 || true
-          echo "=== isolated security import test ==="
-          security create-keychain -p dbg dbg.keychain || true
-          security unlock-keychain -p dbg dbg.keychain || true
-          security import build-system/real-codesigning/certs/dist.p12 -k dbg.keychain -P "" -T /usr/bin/codesign; echo "IMPORT_EXIT=$?"
-          echo "--- identities in dbg.keychain ---"; security find-identity -v dbg.keychain || true
-          security delete-keychain dbg.keychain || true
-          echo "=== END DIAGNOSTIC ==="
-
-          # 3) import certs, then build signed, extensions disabled (single profile)
+          # 3) import certs (P12_PASSWORD consumed by ImportCertificates.py),
+          #    then build signed, extensions disabled (single profile)
           python3 build-system/Make/ImportCertificates.py --path build-system/real-codesigning/certs
+          echo "=== signing identities in keychain ==="; security find-identity -v || true
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
             --overrideXcodeVersion \
