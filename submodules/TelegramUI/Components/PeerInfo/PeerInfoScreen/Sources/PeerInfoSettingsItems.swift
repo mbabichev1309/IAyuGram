@@ -231,6 +231,10 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
     items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "Swiftgram", icon: PresentationResourcesSettings.swiftgram, action: {
         interaction.openSettings(.swiftgram)
     }))
+    // MARK: IAyuGram — TODO: replace icon with a dedicated IAyuGram asset
+    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 2, label: "", text: "IAyuGram", icon: PresentationResourcesSettings.swiftgram, action: {
+        interaction.openSettings(.iAyuGram)
+    }))
 
     var appIndex = 1000
     if let settings = data.globalSettings {
