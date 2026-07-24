@@ -41,13 +41,16 @@ def import_certificates(certificatesPath):
     for file_name in os.listdir(certificatesPath):
         file_path = certificatesPath + '/' + file_name
         if file_path.endswith('.p12') or file_path.endswith('.cer'):
+            # .p12 password comes from the P12_PASSWORD env var (default empty, so
+            # the fake-codesigning empty-password bundle still works); .cer needs none.
+            import_password = os.environ.get('P12_PASSWORD', '') if file_path.endswith('.p12') else ''
             run_executable_with_output('security', arguments=[
                 'import',
                 file_path,
                 '-k',
                 keychain_name,
                 '-P',
-                '',
+                import_password,
                 '-T',
                 '/usr/bin/codesign',
                 '-T',
