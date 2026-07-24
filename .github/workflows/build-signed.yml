@@ -85,8 +85,6 @@ jobs:
           mkdir -p build-system/real-codesigning/certs build-system/real-codesigning/profiles
           echo "$IOS_P12_BASE64" | base64 --decode > build-system/real-codesigning/certs/dist.p12
           echo "$IOS_PROFILE_BASE64" | base64 --decode > build-system/real-codesigning/profiles/Telegram.mobileprovision
-          echo "=== profile CI received: aps-environment present? ==="
-          openssl smime -inform der -verify -noverify -in build-system/real-codesigning/profiles/Telegram.mobileprovision 2>/dev/null | grep -A1 -i "aps-environment" || echo ">>> NO aps-environment in the received profile (secret not updated?)"
 
           # 3) import certs (P12_PASSWORD consumed by ImportCertificates.py),
           #    then build signed, extensions disabled (single profile)
