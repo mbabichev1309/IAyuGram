@@ -108,9 +108,10 @@ private func testIAyuConnection(serverURL: String, token: String, completion: @e
         completion(false, "Invalid URL")
         return
     }
-    switch components.scheme {
-    case "http": components.scheme = "ws"
-    default: components.scheme = "wss"
+    if components.scheme?.lowercased() == "http" {
+        components.scheme = "ws"
+    } else {
+        components.scheme = "wss"
     }
     components.path = "/live"
     components.queryItems = [URLQueryItem(name: "token", value: token)]
