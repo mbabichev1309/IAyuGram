@@ -501,7 +501,7 @@ official_carplay_fragment = """
 <key>com.apple.developer.carplay-messaging</key>
 <true/>
 """
-carplay_fragment = official_carplay_fragment # MARK: Swiftgram if telegram_bundle_id in official_bundle_ids else ""
+carplay_fragment = official_carplay_fragment if telegram_bundle_id in official_bundle_ids else ""  # MARK: Swiftgram (restricted; only official bundles)
 
 icloud_fragment = "" if not telegram_enable_icloud else """
 <key>com.apple.developer.icloud-services</key>
@@ -562,7 +562,7 @@ official_communication_notifications_fragment = """
 <key>com.apple.developer.usernotifications.communication</key>
 <true/>
 """
-communication_notifications_fragment = official_communication_notifications_fragment # if telegram_bundle_id in official_bundle_ids else ""
+communication_notifications_fragment = official_communication_notifications_fragment if telegram_bundle_id in official_bundle_ids else ""
 
 official_notification_filtering_fragment = """
 <key>com.apple.developer.usernotifications.filtering</key>
