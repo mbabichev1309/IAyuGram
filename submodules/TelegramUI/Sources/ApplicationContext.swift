@@ -1,5 +1,6 @@
 // MARK: Swiftgram
 import SGSimpleSettings
+import SGSettingsUI
 import Foundation
 import UIKit
 import Intents
@@ -106,7 +107,11 @@ final class AuthorizedApplicationContext {
     let lockedCoveringView: LockedWindowCoveringView
     
     let context: AccountContextImpl
-    
+
+    // IAyuGram: always-on companion-server sync (live + gap-sync), owns Postbox
+    // materialization of deleted/edited messages for this account's session.
+    private var iaSyncManager: IAyuSyncManager?
+
     let rootController: TelegramRootController
     let notificationController: NotificationContainerController
     
@@ -168,7 +173,10 @@ final class AuthorizedApplicationContext {
         self.lockedCoveringView = LockedWindowCoveringView(theme: presentationData.theme)
         
         self.context = context
-        
+
+        // IAyuGram: start the companion-server sync for this account session.
+        self.iaSyncManager = IAyuSyncManager(context: context)
+
         self.showContactsTab = showContactsTab
         
         self.showCallsTab = showCallsTab
