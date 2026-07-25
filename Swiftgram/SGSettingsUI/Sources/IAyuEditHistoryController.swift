@@ -1,7 +1,6 @@
 import Foundation
 import Display
 import SwiftSignalKit
-import TelegramCore
 import TelegramPresentationData
 import ItemListUI
 import PresentationDataUtils
@@ -9,7 +8,7 @@ import AccountContext
 
 // IAyuGram: read-only "Edit history" screen for a single message. Lists the
 // captured previous versions (oldest first) followed by the current text. Opened
-// from the message context menu when an EditHistoryMessageAttribute is present.
+// from the message context menu when the side store has versions for the message.
 
 private enum IAyuEditHistorySection: Int32 {
     case previous
@@ -77,7 +76,7 @@ private enum IAyuEditHistoryEntry: ItemListNodeEntry {
     }
 }
 
-public func iAyuEditHistoryController(context: AccountContext, versions: [EditHistoryMessageAttribute.Version], currentText: String) -> ViewController {
+public func iAyuEditHistoryController(context: AccountContext, versions: [IAyuEditVersion], currentText: String) -> ViewController {
     let signal = context.sharedContext.presentationData
     |> map { presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
         var entries: [IAyuEditHistoryEntry] = []

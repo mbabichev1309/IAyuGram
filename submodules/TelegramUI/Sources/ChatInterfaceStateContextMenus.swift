@@ -1494,13 +1494,16 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             sgActions.append(showJsonAction)
         }
 
-        // IAyuGram: show captured previous versions of an edited message.
-        if let editHistory = message.attributes.first(where: { $0 is EditHistoryMessageAttribute }) as? EditHistoryMessageAttribute, !editHistory.versions.isEmpty {
+        // IAyuGram: show captured previous versions of an edited message. History is
+        // read from the side store (kept out of Postbox so Telegram's edit/resync
+        // can't wipe it), keyed by peerId+messageId.
+        let iaEditVersions = IAyuEditHistoryStore.shared.versions(peerId: message.id.peerId.toInt64(), messageId: message.id.id)
+        if !iaEditVersions.isEmpty {
             let currentText = message.text
             sgActions.append(.action(ContextMenuActionItem(text: "Edit history", icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Message"), color: theme.actionSheet.primaryTextColor)
             }, action: { _, f in
-                controllerInteraction.navigationController()?.pushViewController(iAyuEditHistoryController(context: context, versions: editHistory.versions, currentText: currentText))
+                controllerInteraction.navigationController()?.pushViewController(iAyuEditHistoryController(context: context, versions: iaEditVersions, currentText: currentText))
                 f(.default)
             })))
         }

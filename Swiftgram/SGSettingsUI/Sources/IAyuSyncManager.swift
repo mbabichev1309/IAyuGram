@@ -81,40 +81,17 @@ public final class IAyuSyncManager {
         }
     }
 
-    // Append the pre-edit text to the existing cloud message's edit history so it can
-    // be shown later via the "Edit history" action. No-op if the message isn't in the
-    // local Postbox (updateMessage's closure only runs when it exists) or if we've
-    // already recorded this edit (matched by cursor).
+    // Record the pre-edit text in the side store (keyed by peerId+messageId) so it
+    // can be shown later via the "Edit history" action. Kept out of Postbox on
+    // purpose — Telegram's own edit/resync would wipe a message attribute. Deduped
+    // by cursor inside the store, so replays never double-record an edit.
     private func applyEdit(_ event: IAyuMessageEvent) {
         guard let oldText = event.oldText, !oldText.isEmpty else {
             return
         }
         let peerId = iAyuPeerId(fromServerChatId: event.chatId)
-        let messageId = MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: Int32(clamping: event.messageId))
-        let version = EditHistoryMessageAttribute.Version(cursor: event.cursor, date: Int32(clamping: event.date ?? 0), text: oldText)
-        let _ = (self.context.account.postbox.transaction { transaction -> Void in
-            transaction.updateMessage(messageId, update: { currentMessage in
-                var versions: [EditHistoryMessageAttribute.Version] = []
-                var attributes = currentMessage.attributes
-                if let index = attributes.firstIndex(where: { $0 is EditHistoryMessageAttribute }) {
-                    if let existing = attributes[index] as? EditHistoryMessageAttribute {
-                        if existing.versions.contains(where: { $0.cursor == event.cursor }) {
-                            return .skip
-                        }
-                        versions = existing.versions
-                    }
-                    attributes.remove(at: index)
-                }
-                versions.append(version)
-                attributes.append(EditHistoryMessageAttribute(versions: versions))
-
-                var storeForwardInfo: StoreMessageForwardInfo?
-                if let forwardInfo = currentMessage.forwardInfo {
-                    storeForwardInfo = StoreMessageForwardInfo(authorId: forwardInfo.author?.id, sourceId: forwardInfo.source?.id, sourceMessageId: forwardInfo.sourceMessageId, date: forwardInfo.date, authorSignature: forwardInfo.authorSignature, psaType: forwardInfo.psaType, flags: forwardInfo.flags)
-                }
-                return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: storeForwardInfo, authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
-            })
-        }).start()
+        let version = IAyuEditVersion(cursor: event.cursor, date: Int32(clamping: event.date ?? 0), text: oldText)
+        IAyuEditHistoryStore.shared.append(peerId: peerId.toInt64(), messageId: Int32(clamping: event.messageId), version: version)
     }
 
     private func gapSync(serverURL: String, token: String, since: Int) {
