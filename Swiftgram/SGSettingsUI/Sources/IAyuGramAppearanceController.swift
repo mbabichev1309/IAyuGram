@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Display
 import SwiftSignalKit
 import TelegramPresentationData
@@ -6,6 +7,36 @@ import ItemListUI
 import PresentationDataUtils
 import AccountContext
 import SGSimpleSettings
+
+// Retains the color-picker delegate for the picker's lifetime (delegate is weak).
+private final class IAyuObjectHolder {
+    var object: AnyObject?
+}
+
+@available(iOS 14.0, *)
+private final class IAyuColorPickerDelegate: NSObject, UIColorPickerViewControllerDelegate {
+    private let onPick: (UIColor) -> Void
+    init(onPick: @escaping (UIColor) -> Void) {
+        self.onPick = onPick
+        super.init()
+    }
+    func colorPickerViewControllerDidSelectColor(_ viewController: UIColorPickerViewController) {
+        self.onPick(viewController.selectedColor)
+    }
+}
+
+private func iAyuRGBValue(from color: UIColor) -> Int32 {
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    color.getRed(&r, green: &g, blue: &b, alpha: &a)
+    let ri = Int32(max(0.0, min(255.0, r * 255.0)))
+    let gi = Int32(max(0.0, min(255.0, g * 255.0)))
+    let bi = Int32(max(0.0, min(255.0, b * 255.0)))
+    return (ri << 16) | (gi << 8) | bi
+}
+
+private func iAyuHexString(_ rgb: Int32) -> String {
+    return String(format: "%06X", UInt32(truncatingIfNeeded: rgb) & 0xffffff)
+}
 
 // IAyuGram → "Appearance": user-editable labels for preserved messages and how the
 // edit-history screen shows text. All values persist in SGSimpleSettings and are
@@ -16,12 +47,14 @@ private final class IAyuAppearanceArguments {
     let updateDeletedBadge: (String) -> Void
     let updateEditedBadge: (String) -> Void
     let toggleTintDeleted: (Bool) -> Void
+    let pickTintColor: () -> Void
     let toggleShowDates: (Bool) -> Void
 
-    init(updateDeletedBadge: @escaping (String) -> Void, updateEditedBadge: @escaping (String) -> Void, toggleTintDeleted: @escaping (Bool) -> Void, toggleShowDates: @escaping (Bool) -> Void) {
+    init(updateDeletedBadge: @escaping (String) -> Void, updateEditedBadge: @escaping (String) -> Void, toggleTintDeleted: @escaping (Bool) -> Void, pickTintColor: @escaping () -> Void, toggleShowDates: @escaping (Bool) -> Void) {
         self.updateDeletedBadge = updateDeletedBadge
         self.updateEditedBadge = updateEditedBadge
         self.toggleTintDeleted = toggleTintDeleted
+        self.pickTintColor = pickTintColor
         self.toggleShowDates = toggleShowDates
     }
 }
@@ -37,12 +70,13 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
     case editedBadge(String, String)
     case badgesInfo(String)
     case tintDeleted(String, Bool)
+    case tintColor(String, Int32)
     case editHistoryHeader(String)
     case showDates(String, Bool)
 
     var section: ItemListSectionId {
         switch self {
-        case .badgesHeader, .deletedBadge, .editedBadge, .badgesInfo, .tintDeleted:
+        case .badgesHeader, .deletedBadge, .editedBadge, .badgesInfo, .tintDeleted, .tintColor:
             return IAyuAppearanceSection.badges.rawValue
         case .editHistoryHeader, .showDates:
             return IAyuAppearanceSection.editHistory.rawValue
@@ -56,8 +90,9 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
         case .editedBadge: return 2
         case .badgesInfo: return 3
         case .tintDeleted: return 4
-        case .editHistoryHeader: return 5
-        case .showDates: return 6
+        case .tintColor: return 5
+        case .editHistoryHeader: return 6
+        case .showDates: return 7
         }
     }
 
@@ -76,6 +111,8 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
         case let (.badgesInfo(a), .badgesInfo(b)):
             return a == b
         case let (.tintDeleted(a1, a2), .tintDeleted(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.tintColor(a1, a2), .tintColor(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.editHistoryHeader(a), .editHistoryHeader(b)):
             return a == b
@@ -105,6 +142,10 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
             return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleTintDeleted(newValue)
             })
+        case let .tintColor(title, rgb):
+            return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "#\(iAyuHexString(rgb))", sectionId: self.section, style: .blocks, action: {
+                arguments.pickTintColor()
+            })
         case let .editHistoryHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .showDates(title, value):
@@ -119,6 +160,7 @@ private struct IAyuAppearanceState: Equatable {
     var deletedBadge: String
     var editedBadge: String
     var tintDeleted: Bool
+    var tintColorRGB: Int32
     var showDates: Bool
 }
 
@@ -127,6 +169,7 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
         deletedBadge: SGSimpleSettings.shared.iaDeletedBadge,
         editedBadge: SGSimpleSettings.shared.iaEditedBadge,
         tintDeleted: SGSimpleSettings.shared.iaTintDeleted,
+        tintColorRGB: SGSimpleSettings.shared.iaTintColorRGB,
         showDates: SGSimpleSettings.shared.iaEditHistoryShowDates
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -134,6 +177,8 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
     let updateState: ((IAyuAppearanceState) -> IAyuAppearanceState) -> Void = { f in
         statePromise.set(stateValue.modify { f($0) })
     }
+    var presentImpl: ((UIViewController) -> Void)?
+    let colorPickerHolder = IAyuObjectHolder()
 
     let arguments = IAyuAppearanceArguments(updateDeletedBadge: { text in
         SGSimpleSettings.shared.iaDeletedBadge = text
@@ -156,6 +201,26 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
             state.tintDeleted = value
             return state
         }
+    }, pickTintColor: {
+        guard #available(iOS 14.0, *) else {
+            return
+        }
+        let picker = UIColorPickerViewController()
+        picker.supportsAlpha = false
+        let currentRGB = UInt32(truncatingIfNeeded: SGSimpleSettings.shared.iaTintColorRGB) & 0xffffff
+        picker.selectedColor = UIColor(rgb: currentRGB)
+        let delegate = IAyuColorPickerDelegate(onPick: { color in
+            let rgb = iAyuRGBValue(from: color)
+            SGSimpleSettings.shared.iaTintColorRGB = rgb
+            updateState { state in
+                var state = state
+                state.tintColorRGB = rgb
+                return state
+            }
+        })
+        colorPickerHolder.object = delegate
+        picker.delegate = delegate
+        presentImpl?(picker)
     }, toggleShowDates: { value in
         SGSimpleSettings.shared.iaEditHistoryShowDates = value
         updateState { state in
@@ -173,6 +238,7 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
         entries.append(.editedBadge("Edited", state.editedBadge))
         entries.append(.badgesInfo("Shown on preserved messages. Leave empty to hide the label."))
         entries.append(.tintDeleted("Tint deleted messages", state.tintDeleted))
+        entries.append(.tintColor("Tint color", state.tintColorRGB))
         entries.append(.editHistoryHeader("EDIT HISTORY"))
         entries.append(.showDates("Show version dates", state.showDates))
 
@@ -181,5 +247,9 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
         return (controllerState, (listState, arguments))
     }
 
-    return ItemListController(context: context, state: signal)
+    let controller = ItemListController(context: context, state: signal)
+    presentImpl = { [weak controller] viewController in
+        controller?.view.window?.rootViewController?.present(viewController, animated: true, completion: nil)
+    }
+    return controller
 }

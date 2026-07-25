@@ -106,6 +106,7 @@ public class SGSimpleSettings {
         case iaEditedBadge
         case iaEditHistoryShowDates
         case iaTintDeleted
+        case iaTintColorRGB
         case iaGhostHideReadReceipts
         case iaGhostStayOffline
         case iaGhostHideTyping
@@ -275,6 +276,7 @@ public class SGSimpleSettings {
         Keys.iaEditedBadge.rawValue: "✏️ edited",
         Keys.iaEditHistoryShowDates.rawValue: true,
         Keys.iaTintDeleted.rawValue: true,
+        Keys.iaTintColorRGB.rawValue: 0xff3b30,
         Keys.iaGhostHideReadReceipts.rawValue: false,
         Keys.iaGhostStayOffline.rawValue: false,
         Keys.iaGhostHideTyping.rawValue: false,
@@ -400,9 +402,13 @@ public class SGSimpleSettings {
     public var iaEditHistoryShowDates: Bool
 
     // IAyuGram: tint deleted-message bubbles (a subtle red overlay following the
-    // bubble shape). Toggle in IAyuGram → Appearance.
+    // bubble shape). Toggle + colour in IAyuGram → Appearance.
     @UserDefault(key: Keys.iaTintDeleted.rawValue)
     public var iaTintDeleted: Bool
+
+    // RGB (0xRRGGBB) of the deleted-bubble tint. Applied at a fixed alpha.
+    @UserDefault(key: Keys.iaTintColorRGB.rawValue)
+    public var iaTintColorRGB: Int32
 
     // IAyuGram ghost-mode sub-toggles (placeholders — not wired to behavior yet).
     @UserDefault(key: Keys.iaGhostHideReadReceipts.rawValue)
