@@ -25,6 +25,9 @@ struct IAyuMessageEvent: Codable, Equatable {
     let text: String?
     let oldText: String?
     let date: Int?
+    // True if the message was sent by the account owner (outgoing) — so the copy is
+    // rendered on the correct side.
+    let fromMe: Bool?
     // Media metadata (if the message carried captured photo/voice/round). Bytes are
     // fetched separately from GET /media?chat_id=..&message_id=.. .
     let mediaKind: String?
@@ -43,6 +46,7 @@ struct IAyuMessageEvent: Codable, Equatable {
         case text
         case oldText = "old_text"
         case date
+        case fromMe = "from_me"
         case mediaKind = "media_kind"
         case mediaMime = "media_mime"
         case mediaSize = "media_size"
@@ -177,12 +181,13 @@ func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
 
 private func iAyuInsertDeleted(context: AccountContext, event: IAyuMessageEvent, media: [Media]) {
     let peerId = iAyuPeerId(fromServerChatId: event.chatId)
-    let isSelf = peerId == context.account.peerId
-    // For a DM, the message we're recovering was almost always sent by the other
-    // party (that's the whole point of catching deletes), so render it incoming.
+    // Render on the correct side: the server tells us whether WE sent the original
+    // (from_me). Outgoing → author is us, no Incoming flag. Incoming → author is the
+    // DM partner (for groups/channels we don't know the exact sender, best-effort).
+    let fromMe = event.fromMe ?? false
     var flags = StoreMessageFlags()
     var authorId = context.account.peerId
-    if !isSelf && peerId.namespace == Namespaces.Peer.CloudUser {
+    if !fromMe {
         flags.insert(.Incoming)
         authorId = peerId
     }
