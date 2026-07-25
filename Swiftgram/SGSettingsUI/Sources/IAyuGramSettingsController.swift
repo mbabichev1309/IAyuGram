@@ -39,7 +39,7 @@ struct IAyuMessageEvent: Codable, Equatable {
 
 // Owns a WebSocket to <server>/live?token=…, decodes events, calls onEvent on the
 // main queue for each. Cancels the socket on deinit (i.e. when the screen closes).
-private final class IAyuLiveSession {
+final class IAyuLiveSession {
     private let task: URLSessionWebSocketTask
     private let onEvent: (IAyuMessageEvent) -> Void
     private let onStatus: (String) -> Void
@@ -117,14 +117,11 @@ private final class IAyuLiveSession {
 
 private final class IAyuSessionBox {
     var session: IAyuLiveSession?
-    // Message ids materialized this session, to avoid duplicate placeholders when
-    // /live replays events on reconnect. Persistent dedup arrives in Phase 2b step 5.
-    var materialized = Set<Int64>()
 }
 
 // Map a companion-server chat_id (Telethon "marked" id convention) to a Telegram
 // PeerId: positive → user DM; -100…​ → channel/supergroup; other negative → basic group.
-private func iAyuPeerId(fromServerChatId chatId: Int64) -> PeerId {
+func iAyuPeerId(fromServerChatId chatId: Int64) -> PeerId {
     if chatId >= 0 {
         return PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(chatId))
     }
@@ -139,7 +136,7 @@ private func iAyuPeerId(fromServerChatId chatId: Int64) -> PeerId {
 // Phase 2b step 4: insert a synthetic local message carrying DeletedMessageAttribute
 // so a chat the server reported a delete in keeps the message (with the "🗑 deleted"
 // badge) instead of it silently vanishing. Text-only for v1.
-private func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
+func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
     let peerId = iAyuPeerId(fromServerChatId: event.chatId)
     let isSelf = peerId == context.account.peerId
     // For a DM, the message we're recovering was almost always sent by the other
@@ -325,11 +322,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             return state
         }
         sessionBox.session = IAyuLiveSession(serverURL: current.serverURL, token: current.token, onEvent: { event in
-            // Phase 2b step 4: materialize deletes into the real chat history.
-            if event.kind == "deleted", !sessionBox.materialized.contains(event.messageId) {
-                sessionBox.materialized.insert(event.messageId)
-                iAyuMaterializeDeleted(context: context, event: event)
-            }
+            // Materialization into Postbox is owned by the app-launch IAyuSyncManager
+            // (step 5); this screen is just a live viewer to avoid double-inserting.
             updateState { state in
                 var state = state
                 state.events.insert(event, at: 0)

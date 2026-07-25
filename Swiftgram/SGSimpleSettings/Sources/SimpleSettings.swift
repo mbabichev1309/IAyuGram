@@ -101,6 +101,7 @@ public class SGSimpleSettings {
         case downloadSpeedBoost
         case iaSyncServerURL
         case iaSyncClientToken
+        case iaSyncCursor
         case bottomTabStyle
         case rememberLastFolder
         case lastAccountFolders
@@ -262,6 +263,7 @@ public class SGSimpleSettings {
         Keys.downloadSpeedBoost.rawValue: DownloadSpeedBoostValues.none.rawValue,
         Keys.iaSyncServerURL.rawValue: "",
         Keys.iaSyncClientToken.rawValue: "",
+        Keys.iaSyncCursor.rawValue: 0,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
         Keys.lastAccountFolders.rawValue: [:],
@@ -366,6 +368,11 @@ public class SGSimpleSettings {
 
     @UserDefault(key: Keys.iaSyncClientToken.rawValue)
     public var iaSyncClientToken: String
+
+    // IAyuGram: highest companion-server event cursor already materialized into
+    // Postbox, so app-launch gap-sync only fetches what was missed. See IAyuSyncManager.
+    @UserDefault(key: Keys.iaSyncCursor.rawValue)
+    public var iaSyncCursor: Int32
     
     @UserDefault(key: Keys.rememberLastFolder.rawValue)
     public var rememberLastFolder: Bool
