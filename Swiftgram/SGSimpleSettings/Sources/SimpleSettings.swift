@@ -105,6 +105,7 @@ public class SGSimpleSettings {
         case iaDeletedBadge
         case iaEditedBadge
         case iaEditHistoryShowDates
+        case iaTintDeleted
         case iaGhostHideReadReceipts
         case iaGhostStayOffline
         case iaGhostHideTyping
@@ -273,6 +274,7 @@ public class SGSimpleSettings {
         Keys.iaDeletedBadge.rawValue: "🗑 deleted",
         Keys.iaEditedBadge.rawValue: "✏️ edited",
         Keys.iaEditHistoryShowDates.rawValue: true,
+        Keys.iaTintDeleted.rawValue: true,
         Keys.iaGhostHideReadReceipts.rawValue: false,
         Keys.iaGhostStayOffline.rawValue: false,
         Keys.iaGhostHideTyping.rawValue: false,
@@ -396,6 +398,11 @@ public class SGSimpleSettings {
 
     @UserDefault(key: Keys.iaEditHistoryShowDates.rawValue)
     public var iaEditHistoryShowDates: Bool
+
+    // IAyuGram: tint deleted-message bubbles (a subtle red overlay following the
+    // bubble shape). Toggle in IAyuGram → Appearance.
+    @UserDefault(key: Keys.iaTintDeleted.rawValue)
+    public var iaTintDeleted: Bool
 
     // IAyuGram ghost-mode sub-toggles (placeholders — not wired to behavior yet).
     @UserDefault(key: Keys.iaGhostHideReadReceipts.rawValue)

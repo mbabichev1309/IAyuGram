@@ -72,7 +72,17 @@ public class ChatMessageBackground: ASDisplayNode {
     private var imageFrame: CGRect?
     private var imageView: UIImageView?
     private var imageViewImage: UIImage?
-    
+
+    // IAyuGram: optional tint overlay for preserved (deleted) messages. A template
+    // copy of the bubble image drawn on top of the base image, so the tint follows
+    // the exact bubble shape (tail, merged corners) and stretch. nil = no tint.
+    private var iaTintImageView: UIImageView?
+    public var iaDeletedTintColor: UIColor? {
+        didSet {
+            self.updateIaTint()
+        }
+    }
+
     public var customHighlightColor: UIColor? {
         didSet {
             self.imageView?.tintColor = self.customHighlightColor
@@ -105,9 +115,37 @@ public class ChatMessageBackground: ASDisplayNode {
         
         imageView.image = self.imageViewImage
         imageView.tintColor = self.customHighlightColor
-        
+
         if let imageFrame = self.imageFrame {
             imageView.frame = imageFrame
+        }
+
+        self.updateIaTint()
+    }
+
+    // Keep the tint overlay in sync with the current bubble image, frame and color.
+    private func updateIaTint() {
+        guard let color = self.iaDeletedTintColor else {
+            self.iaTintImageView?.isHidden = true
+            return
+        }
+        let tintImageView: UIImageView
+        if let existing = self.iaTintImageView {
+            tintImageView = existing
+        } else {
+            tintImageView = UIImageView()
+            self.iaTintImageView = tintImageView
+            if let imageView = self.imageView {
+                self.view.insertSubview(tintImageView, aboveSubview: imageView)
+            } else {
+                self.view.addSubview(tintImageView)
+            }
+        }
+        tintImageView.isHidden = false
+        tintImageView.image = self.imageViewImage?.withRenderingMode(.alwaysTemplate)
+        tintImageView.tintColor = color
+        if let imageFrame = self.imageFrame {
+            tintImageView.frame = imageFrame
         }
     }
     
@@ -116,6 +154,9 @@ public class ChatMessageBackground: ASDisplayNode {
         self.imageFrame = imageFrame
         if let imageView = self.imageView {
             transition.updateFrame(view: imageView, frame: imageFrame)
+        }
+        if let iaTintImageView = self.iaTintImageView {
+            transition.updateFrame(view: iaTintImageView, frame: imageFrame)
         }
         transition.updateFrame(node: self.outlineImageNode, frame: CGRect(origin: CGPoint(), size: size).insetBy(dx: -1.0, dy: -1.0))
     }
@@ -126,7 +167,10 @@ public class ChatMessageBackground: ASDisplayNode {
         if let imageView = self.imageView {
             transition.animator.updateFrame(layer: imageView.layer, frame: imageFrame, completion: nil)
         }
-        
+        if let iaTintImageView = self.iaTintImageView {
+            transition.animator.updateFrame(layer: iaTintImageView.layer, frame: imageFrame, completion: nil)
+        }
+
         transition.animator.updateFrame(layer: self.outlineImageNode.layer, frame: CGRect(origin: CGPoint(), size: size).insetBy(dx: -1.0, dy: -1.0), completion: nil)
     }
     
@@ -336,7 +380,8 @@ public class ChatMessageBackground: ASDisplayNode {
         if let imageView = self.imageView {
             imageView.image = image
         }
-        
+        self.updateIaTint()
+
         self.outlineImageNode.image = outlineImage
     }
 
