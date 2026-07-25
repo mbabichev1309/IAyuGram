@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import Display
 import SwiftSignalKit
+import Postbox
 import TelegramCore
 import TelegramPresentationData
 import ItemListUI
@@ -116,6 +117,63 @@ private final class IAyuLiveSession {
 
 private final class IAyuSessionBox {
     var session: IAyuLiveSession?
+    // Message ids materialized this session, to avoid duplicate placeholders when
+    // /live replays events on reconnect. Persistent dedup arrives in Phase 2b step 5.
+    var materialized = Set<Int64>()
+}
+
+// Map a companion-server chat_id (Telethon "marked" id convention) to a Telegram
+// PeerId: positive → user DM; -100…​ → channel/supergroup; other negative → basic group.
+private func iAyuPeerId(fromServerChatId chatId: Int64) -> PeerId {
+    if chatId >= 0 {
+        return PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(chatId))
+    }
+    let channelBase: Int64 = 1_000_000_000_000
+    if chatId <= -channelBase {
+        let realId = -chatId - channelBase
+        return PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(realId))
+    }
+    return PeerId(namespace: Namespaces.Peer.CloudGroup, id: PeerId.Id._internalFromInt64Value(-chatId))
+}
+
+// Phase 2b step 4: insert a synthetic local message carrying DeletedMessageAttribute
+// so a chat the server reported a delete in keeps the message (with the "🗑 deleted"
+// badge) instead of it silently vanishing. Text-only for v1.
+private func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
+    let peerId = iAyuPeerId(fromServerChatId: event.chatId)
+    let isSelf = peerId == context.account.peerId
+    // For a DM, the message we're recovering was almost always sent by the other
+    // party (that's the whole point of catching deletes), so render it incoming.
+    var flags = StoreMessageFlags()
+    var authorId = context.account.peerId
+    if !isSelf && peerId.namespace == Namespaces.Peer.CloudUser {
+        flags.insert(.Incoming)
+        authorId = peerId
+    }
+    // Prefer the original message time so the placeholder lands in place; fall back
+    // to now (bottom of the chat) rather than epoch (which would bury it at the top).
+    let timestamp = event.date.map { Int32(clamping: $0) } ?? Int32(Date().timeIntervalSince1970)
+    let message = StoreMessage(
+        peerId: peerId,
+        namespace: Namespaces.Message.Local,
+        customStableId: nil,
+        globallyUniqueId: nil,
+        groupingKey: nil,
+        threadId: nil,
+        timestamp: timestamp,
+        flags: flags,
+        tags: [],
+        globalTags: [],
+        localTags: [],
+        forwardInfo: nil,
+        authorId: authorId,
+        text: event.text ?? "",
+        attributes: [DeletedMessageAttribute(date: timestamp)],
+        media: []
+    )
+    let _ = (context.account.postbox.transaction { transaction -> Void in
+        let _ = transaction.addMessages([message], location: .Random)
+    }).start()
 }
 
 private final class IAyuGramControllerArguments {
@@ -267,6 +325,11 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             return state
         }
         sessionBox.session = IAyuLiveSession(serverURL: current.serverURL, token: current.token, onEvent: { event in
+            // Phase 2b step 4: materialize deletes into the real chat history.
+            if event.kind == "delete", !sessionBox.materialized.contains(event.messageId) {
+                sessionBox.materialized.insert(event.messageId)
+                iAyuMaterializeDeleted(context: context, event: event)
+            }
             updateState { state in
                 var state = state
                 state.events.insert(event, at: 0)
