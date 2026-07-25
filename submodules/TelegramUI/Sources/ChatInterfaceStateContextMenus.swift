@@ -1,5 +1,6 @@
 import SGStrings
 import SGSimpleSettings
+import SGSettingsUI
 import PeerInfoUI
 import Foundation
 import UIKit
@@ -1492,7 +1493,18 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
         } else {
             sgActions.append(showJsonAction)
         }
-        
+
+        // IAyuGram: show captured previous versions of an edited message.
+        if let editHistory = message.attributes.first(where: { $0 is EditHistoryMessageAttribute }) as? EditHistoryMessageAttribute, !editHistory.versions.isEmpty {
+            let currentText = message.text
+            sgActions.append(.action(ContextMenuActionItem(text: "Edit history", icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Message"), color: theme.actionSheet.primaryTextColor)
+            }, action: { _, f in
+                controllerInteraction.navigationController()?.pushViewController(iAyuEditHistoryController(context: context, versions: editHistory.versions, currentText: currentText))
+                f(.default)
+            })))
+        }
+
         var threadId: Int64?
         var threadMessageCount: Int = 0
         if case .peer = chatPresentationInterfaceState.chatLocation, let channel = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramChannel, case .group = channel.info {
