@@ -147,10 +147,22 @@ public class ChatMessageBackground: ASDisplayNode {
             self.view.insertSubview(tintImageView, aboveSubview: imageView)
         }
         tintImageView.isHidden = false
-        tintImageView.image = self.iaShapeImage?.withRenderingMode(.alwaysTemplate)
-        tintImageView.tintColor = color
-        if let imageFrame = self.imageFrame {
-            tintImageView.frame = imageFrame
+        // Bake the tint into the image (by alpha shape) rather than relying on
+        // UIImageView template tinting — this codebase's bubble graphics don't tint
+        // reliably as templates (its own highlight uses pre-rendered images).
+        // Re-apply the original cap insets so the tinted bubble still stretches.
+        if let shape = self.iaShapeImage {
+            var tinted = shape.withTintColor(color, renderingMode: .alwaysOriginal)
+            if shape.capInsets != .zero {
+                tinted = tinted.resizableImage(withCapInsets: shape.capInsets, resizingMode: shape.resizingMode)
+            }
+            tintImageView.image = tinted
+        } else {
+            tintImageView.image = nil
+        }
+        // Match the visible bubble frame exactly (imageView renders correctly).
+        if let frame = self.imageView?.frame ?? self.imageFrame {
+            tintImageView.frame = frame
         }
     }
     
