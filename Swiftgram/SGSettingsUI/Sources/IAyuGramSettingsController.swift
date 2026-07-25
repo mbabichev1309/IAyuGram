@@ -256,16 +256,22 @@ private func iAyuBuildFileMedia(postbox: Postbox, data: Data, event: IAyuMessage
         attributes.append(.Audio(isVoice: true, duration: duration, title: nil, performer: nil, waveform: nil))
         mimeType = event.mediaMime ?? "audio/ogg"
     } else {
+        // Materialize a round message as a plain video: round videos render via a
+        // dedicated top-level item node (ChatMessageInstantVideoItemNode) that
+        // doesn't handle our synthetic local message, so it wouldn't show at all.
+        // A normal video routes through the working media-bubble path — no circle,
+        // but the content is preserved and plays.
         let width = Int32(event.mediaWidth ?? 0)
         let height = Int32(event.mediaHeight ?? 0)
         attributes.append(.Video(
             duration: Double(duration),
             size: PixelDimensions(width: width > 0 ? width : 240, height: height > 0 ? height : 240),
-            flags: [.instantRoundVideo],
+            flags: [],
             preloadSize: nil,
             coverTime: nil,
             videoCodec: nil
         ))
+        attributes.append(.FileName(fileName: "video_message.mp4"))
         mimeType = event.mediaMime ?? "video/mp4"
     }
     return TelegramMediaFile(
