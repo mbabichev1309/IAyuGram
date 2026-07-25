@@ -547,7 +547,11 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                 updatedDateText = "\(arguments.presentationData.strings.Conversation_MessageEditedLabel) \(updatedDateText)"
             }
             if arguments.deleted {
-                updatedDateText = "🗑 deleted \(updatedDateText)"
+                // IAyuGram: user-configurable label (IAyuGram → Appearance); empty hides it.
+                let deletedBadge = SGSimpleSettings.shared.iaDeletedBadge
+                if !deletedBadge.isEmpty {
+                    updatedDateText = "\(deletedBadge) \(updatedDateText)"
+                }
             }
             if let impressionCount = arguments.impressionCount {
                 updatedDateText = compactNumericCountString(impressionCount, decimalSeparator: arguments.presentationData.dateTimeFormat.decimalSeparator) + " " + updatedDateText

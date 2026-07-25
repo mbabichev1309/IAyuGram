@@ -5,6 +5,7 @@ import TelegramPresentationData
 import ItemListUI
 import PresentationDataUtils
 import AccountContext
+import SGSimpleSettings
 
 // IAyuGram: read-only "Edit history" screen for a single message. Lists the
 // captured previous versions (oldest first) followed by the current text. Opened
@@ -79,11 +80,23 @@ private enum IAyuEditHistoryEntry: ItemListNodeEntry {
 public func iAyuEditHistoryController(context: AccountContext, versions: [IAyuEditVersion], currentText: String) -> ViewController {
     let signal = context.sharedContext.presentationData
     |> map { presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let showDates = SGSimpleSettings.shared.iaEditHistoryShowDates
+        let editedBadge = SGSimpleSettings.shared.iaEditedBadge
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .short
+        dateFormatter.timeStyle = .short
+
         var entries: [IAyuEditHistoryEntry] = []
         if !versions.isEmpty {
-            entries.append(.previousHeader("PREVIOUS VERSIONS"))
+            let header = editedBadge.isEmpty ? "PREVIOUS VERSIONS" : "\(editedBadge) — previous versions"
+            entries.append(.previousHeader(header))
             for (index, version) in versions.enumerated() {
-                entries.append(.previous(index, version.text))
+                var text = version.text
+                if showDates && version.date > 0 {
+                    let dateString = dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(version.date)))
+                    text = "\(dateString)\n\(version.text)"
+                }
+                entries.append(.previous(index, text))
             }
         }
         entries.append(.currentHeader("CURRENT"))
