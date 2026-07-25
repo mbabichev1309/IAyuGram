@@ -25,6 +25,15 @@ struct IAyuMessageEvent: Codable, Equatable {
     let text: String?
     let oldText: String?
     let date: Int?
+    // Media metadata (if the message carried captured photo/voice/round). Bytes are
+    // fetched separately from GET /media?chat_id=..&message_id=.. .
+    let mediaKind: String?
+    let mediaMime: String?
+    let mediaSize: Int?
+    let mediaWidth: Int?
+    let mediaHeight: Int?
+    let mediaDuration: Int?
+    let mediaViewOnce: Bool?
 
     enum CodingKeys: String, CodingKey {
         case cursor
@@ -34,6 +43,13 @@ struct IAyuMessageEvent: Codable, Equatable {
         case text
         case oldText = "old_text"
         case date
+        case mediaKind = "media_kind"
+        case mediaMime = "media_mime"
+        case mediaSize = "media_size"
+        case mediaWidth = "media_width"
+        case mediaHeight = "media_height"
+        case mediaDuration = "media_duration"
+        case mediaViewOnce = "media_view_once"
     }
 }
 
@@ -135,8 +151,26 @@ func iAyuPeerId(fromServerChatId chatId: Int64) -> PeerId {
 
 // Phase 2b step 4: insert a synthetic local message carrying DeletedMessageAttribute
 // so a chat the server reported a delete in keeps the message (with the "🗑 deleted"
-// badge) instead of it silently vanishing. Text-only for v1.
+// badge) instead of it silently vanishing. If the event has photo media, fetch the
+// bytes from the companion server and attach them; otherwise text-only.
 func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
+    if event.mediaKind == "photo" {
+        // Fetch bytes first, then insert the message with the image attached. If the
+        // fetch fails we still insert the text placeholder so the delete is visible.
+        iAyuFetchMediaBytes(event: event) { data in
+            var media: [Media] = []
+            if let data = data, let image = iAyuBuildPhotoMedia(postbox: context.account.postbox, data: data, event: event) {
+                media = [image]
+            }
+            iAyuInsertDeleted(context: context, event: event, media: media)
+        }
+    } else {
+        // Voice/round (TelegramMediaFile) not materialized yet — text placeholder.
+        iAyuInsertDeleted(context: context, event: event, media: [])
+    }
+}
+
+private func iAyuInsertDeleted(context: AccountContext, event: IAyuMessageEvent, media: [Media]) {
     let peerId = iAyuPeerId(fromServerChatId: event.chatId)
     let isSelf = peerId == context.account.peerId
     // For a DM, the message we're recovering was almost always sent by the other
@@ -166,11 +200,66 @@ func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
         authorId: authorId,
         text: event.text ?? "",
         attributes: [DeletedMessageAttribute(date: timestamp)],
-        media: []
+        media: media
     )
     let _ = (context.account.postbox.transaction { transaction -> Void in
         let _ = transaction.addMessages([message], location: .Random)
     }).start()
+}
+
+// Build a local-image media from downloaded bytes: write the bytes into the media
+// box under a fresh local resource, then reference it. The image node loads the
+// cached bytes when the message is displayed (no Telegram CDN round-trip).
+private func iAyuBuildPhotoMedia(postbox: Postbox, data: Data, event: IAyuMessageEvent) -> TelegramMediaImage? {
+    let fileId = Int64.random(in: Int64.min ... Int64.max)
+    let resource = LocalFileMediaResource(fileId: fileId, size: Int64(data.count))
+    postbox.mediaBox.storeResourceData(resource.id, data: data, synchronous: true)
+    let width = Int32(event.mediaWidth ?? 0)
+    let height = Int32(event.mediaHeight ?? 0)
+    let representation = TelegramMediaImageRepresentation(
+        dimensions: PixelDimensions(width: width > 0 ? width : 1, height: height > 0 ? height : 1),
+        resource: resource,
+        progressiveSizes: [],
+        immediateThumbnailData: nil
+    )
+    return TelegramMediaImage(
+        imageId: MediaId(namespace: Namespaces.Media.LocalImage, id: fileId),
+        representations: [representation],
+        immediateThumbnailData: nil,
+        reference: nil,
+        partialReference: nil,
+        flags: []
+    )
+}
+
+// Fetch the raw media bytes for an event from GET /media (Bearer token). Completion
+// runs on a background queue with the bytes, or nil on any failure.
+private func iAyuFetchMediaBytes(event: IAyuMessageEvent, completion: @escaping (Data?) -> Void) {
+    let serverURL = SGSimpleSettings.shared.iaSyncServerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    let token = SGSimpleSettings.shared.iaSyncClientToken
+    guard !serverURL.isEmpty, !token.isEmpty,
+          var components = URLComponents(string: serverURL.contains("://") ? serverURL : "https://\(serverURL)") else {
+        completion(nil)
+        return
+    }
+    components.path = "/media"
+    components.queryItems = [
+        URLQueryItem(name: "chat_id", value: "\(event.chatId)"),
+        URLQueryItem(name: "message_id", value: "\(event.messageId)"),
+    ]
+    guard let url = components.url else {
+        completion(nil)
+        return
+    }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    URLSession.shared.dataTask(with: request) { data, response, _ in
+        if let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data {
+            completion(data)
+        } else {
+            completion(nil)
+        }
+    }.resume()
 }
 
 // IAyuGram hub (root screen): a ghost-mode section (placeholder toggles, wired to
