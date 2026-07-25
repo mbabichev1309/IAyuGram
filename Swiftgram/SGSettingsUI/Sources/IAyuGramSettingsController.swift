@@ -54,6 +54,18 @@ private final class IAyuLiveSession {
         self.task.resume()
         onStatus("Live: connecting…")
         self.receiveLoop()
+        // /live sends nothing until an event occurs, so confirm the connection
+        // (handshake + token auth) with a ping instead of waiting for a message.
+        self.task.sendPing { [weak self] error in
+            Queue.mainQueue().async {
+                guard let self = self, self.active else { return }
+                if let error = error {
+                    self.onStatus("Live: failed — \(error.localizedDescription)")
+                } else {
+                    self.onStatus("Live: connected ✅ (listening for events)")
+                }
+            }
+        }
     }
 
     static func liveURL(serverURL: String, token: String) -> URL? {
@@ -80,7 +92,6 @@ private final class IAyuLiveSession {
                    let data = text.data(using: .utf8),
                    let event = try? JSONDecoder().decode(IAyuMessageEvent.self, from: data) {
                     Queue.mainQueue().async {
-                        self.onStatus("Live: connected ✅")
                         self.onEvent(event)
                     }
                 }
