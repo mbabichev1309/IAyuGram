@@ -3881,6 +3881,13 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
             legacyTransition = .immediate
         }
         strongSelf.backgroundNode.setType(type: backgroundType, highlighted: false, graphics: graphics, maskMode: strongSelf.backgroundMaskMode, hasWallpaper: hasWallpaper, transition: legacyTransition, backgroundNode: presentationContext.backgroundNode)
+        // IAyuGram: tint preserved (deleted) message bubbles. Reset to nil otherwise so
+        // recycled cells don't carry the tint onto a normal message.
+        if SGSimpleSettings.shared.iaTintDeleted, item.message.attributes.contains(where: { $0 is DeletedMessageAttribute }) {
+            strongSelf.backgroundNode.iaDeletedTintColor = UIColor(rgb: 0xff3b30, alpha: 0.12)
+        } else {
+            strongSelf.backgroundNode.iaDeletedTintColor = nil
+        }
         strongSelf.backgroundWallpaperNode.setType(type: backgroundType, theme: item.presentationData.theme, essentialGraphics: graphics, maskMode: strongSelf.backgroundMaskMode, backgroundNode: presentationContext.backgroundNode)
         strongSelf.shadowNode.setType(type: backgroundType, hasWallpaper: hasWallpaper, graphics: graphics)
         
