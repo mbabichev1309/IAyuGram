@@ -232,7 +232,7 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
         interaction.openSettings(.swiftgram)
     }))
     // MARK: IAyuGram — TODO: replace icon with a dedicated IAyuGram asset
-    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 2, label: "", text: "IAyuGram", icon: PresentationResourcesSettings.swiftgram, action: {
+    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 2, label: .none, text: "IAyuGram", icon: PresentationResourcesSettings.swiftgram, action: {
         interaction.openSettings(.iAyuGram)
     }))
 
