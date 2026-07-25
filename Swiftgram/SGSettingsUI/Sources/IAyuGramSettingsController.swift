@@ -115,7 +115,7 @@ final class IAyuLiveSession {
     }
 }
 
-private final class IAyuSessionBox {
+final class IAyuSessionBox {
     var session: IAyuLiveSession?
 }
 
@@ -173,197 +173,173 @@ func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
     }).start()
 }
 
-private final class IAyuGramControllerArguments {
-    let updateServerURL: (String) -> Void
-    let updateToken: (String) -> Void
-    let connectLive: () -> Void
+// IAyuGram hub (root screen): a ghost-mode section (placeholder toggles, wired to
+// behavior later) plus navigation into the Appearance and Connection-keys screens.
 
-    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void) {
-        self.updateServerURL = updateServerURL
-        self.updateToken = updateToken
-        self.connectLive = connectLive
+private final class IAyuHubArguments {
+    let toggleHideReadReceipts: (Bool) -> Void
+    let toggleStayOffline: (Bool) -> Void
+    let toggleHideTyping: (Bool) -> Void
+    let openAppearance: () -> Void
+    let openConnection: () -> Void
+
+    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openConnection: @escaping () -> Void) {
+        self.toggleHideReadReceipts = toggleHideReadReceipts
+        self.toggleStayOffline = toggleStayOffline
+        self.toggleHideTyping = toggleHideTyping
+        self.openAppearance = openAppearance
+        self.openConnection = openConnection
     }
 }
 
-private enum IAyuGramSection: Int32 {
-    case connection
-    case live
+private enum IAyuHubSection: Int32 {
+    case ghost
+    case screens
 }
 
-private enum IAyuGramEntry: ItemListNodeEntry {
-    case connectionHeader(String)
-    case serverURL(String, String)
-    case token(String, String)
-    case connect(String)
-    case status(String)
-    case liveHeader(String)
-    case event(Int, String)   // stableIndex, text
+private enum IAyuHubEntry: ItemListNodeEntry {
+    case ghostHeader(String)
+    case ghostHideReadReceipts(String, Bool)
+    case ghostStayOffline(String, Bool)
+    case ghostHideTyping(String, Bool)
+    case ghostInfo(String)
+    case appearance(String)
+    case connection(String)
 
     var section: ItemListSectionId {
         switch self {
-        case .connectionHeader, .serverURL, .token, .connect, .status:
-            return IAyuGramSection.connection.rawValue
-        case .liveHeader, .event:
-            return IAyuGramSection.live.rawValue
+        case .ghostHeader, .ghostHideReadReceipts, .ghostStayOffline, .ghostHideTyping, .ghostInfo:
+            return IAyuHubSection.ghost.rawValue
+        case .appearance, .connection:
+            return IAyuHubSection.screens.rawValue
         }
     }
 
     var stableId: Int32 {
         switch self {
-        case .connectionHeader: return 0
-        case .serverURL: return 1
-        case .token: return 2
-        case .connect: return 3
-        case .status: return 4
-        case .liveHeader: return 5
-        case let .event(index, _): return 100 + Int32(index)
+        case .ghostHeader: return 0
+        case .ghostHideReadReceipts: return 1
+        case .ghostStayOffline: return 2
+        case .ghostHideTyping: return 3
+        case .ghostInfo: return 4
+        case .appearance: return 5
+        case .connection: return 6
         }
     }
 
-    static func <(lhs: IAyuGramEntry, rhs: IAyuGramEntry) -> Bool {
+    static func <(lhs: IAyuHubEntry, rhs: IAyuHubEntry) -> Bool {
         return lhs.stableId < rhs.stableId
     }
 
-    static func ==(lhs: IAyuGramEntry, rhs: IAyuGramEntry) -> Bool {
+    static func ==(lhs: IAyuHubEntry, rhs: IAyuHubEntry) -> Bool {
         switch (lhs, rhs) {
-        case let (.connectionHeader(a), .connectionHeader(b)):
+        case let (.ghostHeader(a), .ghostHeader(b)):
             return a == b
-        case let (.serverURL(a1, a2), .serverURL(b1, b2)):
+        case let (.ghostHideReadReceipts(a1, a2), .ghostHideReadReceipts(b1, b2)):
             return a1 == b1 && a2 == b2
-        case let (.token(a1, a2), .token(b1, b2)):
+        case let (.ghostStayOffline(a1, a2), .ghostStayOffline(b1, b2)):
             return a1 == b1 && a2 == b2
-        case let (.connect(a), .connect(b)):
-            return a == b
-        case let (.status(a), .status(b)):
-            return a == b
-        case let (.liveHeader(a), .liveHeader(b)):
-            return a == b
-        case let (.event(a1, a2), .event(b1, b2)):
+        case let (.ghostHideTyping(a1, a2), .ghostHideTyping(b1, b2)):
             return a1 == b1 && a2 == b2
+        case let (.ghostInfo(a), .ghostInfo(b)):
+            return a == b
+        case let (.appearance(a), .appearance(b)):
+            return a == b
+        case let (.connection(a), .connection(b)):
+            return a == b
         default:
             return false
         }
     }
 
     func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
-        let arguments = arguments as! IAyuGramControllerArguments
+        let arguments = arguments as! IAyuHubArguments
         switch self {
-        case let .connectionHeader(text):
+        case let .ghostHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
-        case let .serverURL(title, value):
-            return ItemListSingleLineInputItem(presentationData: presentationData, title: NSAttributedString(string: title), text: value, placeholder: "https://…ts.net", type: .regular(capitalization: false, autocorrection: false), sectionId: self.section, textUpdated: { text in
-                arguments.updateServerURL(text)
-            }, action: {})
-        case let .token(title, value):
-            return ItemListSingleLineInputItem(presentationData: presentationData, title: NSAttributedString(string: title), text: value, placeholder: "client token", type: .regular(capitalization: false, autocorrection: false), sectionId: self.section, textUpdated: { text in
-                arguments.updateToken(text)
-            }, action: {})
-        case let .connect(title):
-            return ItemListActionItem(presentationData: presentationData, title: title, kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
-                arguments.connectLive()
+        case let .ghostHideReadReceipts(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, enabled: false, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleHideReadReceipts(newValue)
             })
-        case let .status(text):
+        case let .ghostStayOffline(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, enabled: false, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleStayOffline(newValue)
+            })
+        case let .ghostHideTyping(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, enabled: false, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleHideTyping(newValue)
+            })
+        case let .ghostInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
-        case let .liveHeader(text):
-            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
-        case let .event(_, text):
-            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .appearance(title):
+            return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "", sectionId: self.section, style: .blocks, action: {
+                arguments.openAppearance()
+            })
+        case let .connection(title):
+            return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "", sectionId: self.section, style: .blocks, action: {
+                arguments.openConnection()
+            })
         }
     }
 }
 
-private struct IAyuGramControllerState: Equatable {
-    var serverURL: String
-    var token: String
-    var status: String
-    var events: [IAyuMessageEvent]
-}
-
-private func eventDescription(_ event: IAyuMessageEvent) -> String {
-    let content = event.text ?? "<no content>"
-    return "\(event.kind) #\(event.messageId): \(content)"
+private struct IAyuHubState: Equatable {
+    var hideReadReceipts: Bool
+    var stayOffline: Bool
+    var hideTyping: Bool
 }
 
 public func iAyuGramSettingsController(context: AccountContext) -> ViewController {
-    let initialState = IAyuGramControllerState(
-        serverURL: SGSimpleSettings.shared.iaSyncServerURL,
-        token: SGSimpleSettings.shared.iaSyncClientToken,
-        status: "",
-        events: []
+    let initialState = IAyuHubState(
+        hideReadReceipts: SGSimpleSettings.shared.iaGhostHideReadReceipts,
+        stayOffline: SGSimpleSettings.shared.iaGhostStayOffline,
+        hideTyping: SGSimpleSettings.shared.iaGhostHideTyping
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
-    let updateState: ((IAyuGramControllerState) -> IAyuGramControllerState) -> Void = { f in
+    let updateState: ((IAyuHubState) -> IAyuHubState) -> Void = { f in
         statePromise.set(stateValue.modify { f($0) })
     }
-    let sessionBox = IAyuSessionBox()
 
-    let arguments = IAyuGramControllerArguments(updateServerURL: { text in
+    var pushControllerImpl: ((ViewController) -> Void)?
+
+    let arguments = IAyuHubArguments(toggleHideReadReceipts: { value in
+        SGSimpleSettings.shared.iaGhostHideReadReceipts = value
         updateState { state in
             var state = state
-            state.serverURL = text
+            state.hideReadReceipts = value
             return state
         }
-    }, updateToken: { text in
+    }, toggleStayOffline: { value in
+        SGSimpleSettings.shared.iaGhostStayOffline = value
         updateState { state in
             var state = state
-            state.token = text
+            state.stayOffline = value
             return state
         }
-    }, connectLive: {
-        let current = stateValue.with { $0 }
-        SGSimpleSettings.shared.iaSyncServerURL = current.serverURL
-        SGSimpleSettings.shared.iaSyncClientToken = current.token
-        sessionBox.session?.stop()
+    }, toggleHideTyping: { value in
+        SGSimpleSettings.shared.iaGhostHideTyping = value
         updateState { state in
             var state = state
-            state.events = []
-            state.status = "Live: connecting…"
+            state.hideTyping = value
             return state
         }
-        sessionBox.session = IAyuLiveSession(serverURL: current.serverURL, token: current.token, onEvent: { event in
-            // Materialization into Postbox is owned by the app-launch IAyuSyncManager
-            // (step 5); this screen is just a live viewer to avoid double-inserting.
-            updateState { state in
-                var state = state
-                state.events.insert(event, at: 0)
-                if state.events.count > 20 {
-                    state.events.removeLast(state.events.count - 20)
-                }
-                return state
-            }
-        }, onStatus: { status in
-            updateState { state in
-                var state = state
-                state.status = status
-                return state
-            }
-        })
-        if sessionBox.session == nil {
-            updateState { state in
-                var state = state
-                state.status = "Live: invalid URL"
-                return state
-            }
-        }
+    }, openAppearance: {
+        pushControllerImpl?(iAyuGramAppearanceController(context: context))
+    }, openConnection: {
+        pushControllerImpl?(iAyuGramConnectionController(context: context))
     })
 
     let signal = combineLatest(statePromise.get(), context.sharedContext.presentationData)
     |> map { state, presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
-        var entries: [IAyuGramEntry] = []
-        entries.append(.connectionHeader("COMPANION SERVER"))
-        entries.append(.serverURL("URL", state.serverURL))
-        entries.append(.token("Token", state.token))
-        entries.append(.connect("Save & Connect (live)"))
-        if !state.status.isEmpty {
-            entries.append(.status(state.status))
-        }
-        if !state.events.isEmpty {
-            entries.append(.liveHeader("LIVE EVENTS"))
-            for (index, event) in state.events.enumerated() {
-                entries.append(.event(index, eventDescription(event)))
-            }
-        }
+        var entries: [IAyuHubEntry] = []
+        entries.append(.ghostHeader("GHOST MODE"))
+        entries.append(.ghostHideReadReceipts("Don't send read receipts", state.hideReadReceipts))
+        entries.append(.ghostStayOffline("Stay offline", state.stayOffline))
+        entries.append(.ghostHideTyping("Don't send typing", state.hideTyping))
+        entries.append(.ghostInfo("Ghost mode is not active yet — coming soon."))
+        entries.append(.appearance("Appearance"))
+        entries.append(.connection("Connection keys"))
 
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("IAyuGram"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
@@ -371,8 +347,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
     }
 
     let controller = ItemListController(context: context, state: signal)
-    // sessionBox is retained through `arguments` (the map closure) for the
-    // controller's lifetime; when the screen is dismissed and the controller is
-    // released, the session deinits and cancels its WebSocket.
+    pushControllerImpl = { [weak controller] c in
+        (controller?.navigationController as? NavigationController)?.pushViewController(c)
+    }
     return controller
 }

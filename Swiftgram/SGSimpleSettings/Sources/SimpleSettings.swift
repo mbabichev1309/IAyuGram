@@ -102,6 +102,12 @@ public class SGSimpleSettings {
         case iaSyncServerURL
         case iaSyncClientToken
         case iaSyncCursor
+        case iaDeletedBadge
+        case iaEditedBadge
+        case iaEditHistoryShowDates
+        case iaGhostHideReadReceipts
+        case iaGhostStayOffline
+        case iaGhostHideTyping
         case bottomTabStyle
         case rememberLastFolder
         case lastAccountFolders
@@ -264,6 +270,12 @@ public class SGSimpleSettings {
         Keys.iaSyncServerURL.rawValue: "",
         Keys.iaSyncClientToken.rawValue: "",
         Keys.iaSyncCursor.rawValue: 0,
+        Keys.iaDeletedBadge.rawValue: "🗑 deleted",
+        Keys.iaEditedBadge.rawValue: "✏️ edited",
+        Keys.iaEditHistoryShowDates.rawValue: true,
+        Keys.iaGhostHideReadReceipts.rawValue: false,
+        Keys.iaGhostStayOffline.rawValue: false,
+        Keys.iaGhostHideTyping.rawValue: false,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
         Keys.lastAccountFolders.rawValue: [:],
@@ -373,6 +385,27 @@ public class SGSimpleSettings {
     // Postbox, so app-launch gap-sync only fetches what was missed. See IAyuSyncManager.
     @UserDefault(key: Keys.iaSyncCursor.rawValue)
     public var iaSyncCursor: Int32
+
+    // IAyuGram appearance: label prepended to a deleted message's timestamp, and the
+    // label used for edited-message history. User-editable in IAyuGram → Appearance.
+    @UserDefault(key: Keys.iaDeletedBadge.rawValue)
+    public var iaDeletedBadge: String
+
+    @UserDefault(key: Keys.iaEditedBadge.rawValue)
+    public var iaEditedBadge: String
+
+    @UserDefault(key: Keys.iaEditHistoryShowDates.rawValue)
+    public var iaEditHistoryShowDates: Bool
+
+    // IAyuGram ghost-mode sub-toggles (placeholders — not wired to behavior yet).
+    @UserDefault(key: Keys.iaGhostHideReadReceipts.rawValue)
+    public var iaGhostHideReadReceipts: Bool
+
+    @UserDefault(key: Keys.iaGhostStayOffline.rawValue)
+    public var iaGhostStayOffline: Bool
+
+    @UserDefault(key: Keys.iaGhostHideTyping.rawValue)
+    public var iaGhostHideTyping: Bool
     
     @UserDefault(key: Keys.rememberLastFolder.rawValue)
     public var rememberLastFolder: Bool
