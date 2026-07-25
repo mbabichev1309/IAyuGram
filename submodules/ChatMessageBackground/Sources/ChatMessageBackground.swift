@@ -77,6 +77,10 @@ public class ChatMessageBackground: ASDisplayNode {
     // copy of the bubble image drawn on top of the base image, so the tint follows
     // the exact bubble shape (tail, merged corners) and stretch. nil = no tint.
     private var iaTintImageView: UIImageView?
+    // The bubble shape image used for the tint template. Unlike imageViewImage it
+    // stays non-nil on wallpaper-bubble themes (where the displayed image is nil and
+    // the bubble is drawn by the backdrop), so the tint works there too.
+    private var iaShapeImage: UIImage?
     public var iaDeletedTintColor: UIColor? {
         didSet {
             self.updateIaTint()
@@ -135,14 +139,15 @@ public class ChatMessageBackground: ASDisplayNode {
         } else {
             tintImageView = UIImageView()
             self.iaTintImageView = tintImageView
-            if let imageView = self.imageView {
-                self.view.insertSubview(tintImageView, aboveSubview: imageView)
-            } else {
-                self.view.addSubview(tintImageView)
-            }
+            self.view.addSubview(tintImageView)
+        }
+        // Always re-assert z-order above the base bubble image: didLoad may add
+        // imageView AFTER this overlay was created, which would hide the tint.
+        if let imageView = self.imageView {
+            self.view.insertSubview(tintImageView, aboveSubview: imageView)
         }
         tintImageView.isHidden = false
-        tintImageView.image = self.imageViewImage?.withRenderingMode(.alwaysTemplate)
+        tintImageView.image = self.iaShapeImage?.withRenderingMode(.alwaysTemplate)
         tintImageView.tintColor = color
         if let imageFrame = self.imageFrame {
             tintImageView.frame = imageFrame
@@ -379,6 +384,16 @@ public class ChatMessageBackground: ASDisplayNode {
         self.imageViewImage = image
         if let imageView = self.imageView {
             imageView.image = image
+        }
+        // Shape image for the tint: fall back to the base bubble graphic when the
+        // displayed image is nil (wallpaper-bubble themes), so the tint still shows.
+        switch type {
+        case .none:
+            self.iaShapeImage = nil
+        case .incoming:
+            self.iaShapeImage = image ?? graphics.chatMessageBackgroundIncomingImage
+        case .outgoing:
+            self.iaShapeImage = image ?? graphics.chatMessageBackgroundOutgoingImage
         }
         self.updateIaTint()
 
