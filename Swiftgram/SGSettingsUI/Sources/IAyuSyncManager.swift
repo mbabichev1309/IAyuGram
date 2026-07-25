@@ -28,9 +28,12 @@ public final class IAyuSyncManager {
     private let context: AccountContext
     private var liveSession: IAyuLiveSession?
     private var active = true
-    // Cursors materialized this session, so an event that arrives on both /live and
-    // the gap-sync backfill isn't inserted twice.
+    // Cursors seen this session, so an event that arrives on both /live and the
+    // gap-sync backfill isn't processed twice.
     private var processedCursors = Set<Int>()
+    // Message ids already materialized this session, so one deleted message yields at
+    // most one placeholder even if the server re-emits it under a new cursor.
+    private var materializedMessageIds = Set<Int64>()
 
     public init(context: AccountContext) {
         self.context = context
@@ -64,7 +67,8 @@ public final class IAyuSyncManager {
                 return
             }
             self.processedCursors.insert(event.cursor)
-            if event.kind == "deleted" {
+            if event.kind == "deleted", !self.materializedMessageIds.contains(event.messageId) {
+                self.materializedMessageIds.insert(event.messageId)
                 iAyuMaterializeDeleted(context: self.context, event: event)
             }
             if event.cursor > Int(SGSimpleSettings.shared.iaSyncCursor) {
