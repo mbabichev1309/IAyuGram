@@ -326,7 +326,7 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         }
         sessionBox.session = IAyuLiveSession(serverURL: current.serverURL, token: current.token, onEvent: { event in
             // Phase 2b step 4: materialize deletes into the real chat history.
-            if event.kind == "delete", !sessionBox.materialized.contains(event.messageId) {
+            if event.kind == "deleted", !sessionBox.materialized.contains(event.messageId) {
                 sessionBox.materialized.insert(event.messageId)
                 iAyuMaterializeDeleted(context: context, event: event)
             }
