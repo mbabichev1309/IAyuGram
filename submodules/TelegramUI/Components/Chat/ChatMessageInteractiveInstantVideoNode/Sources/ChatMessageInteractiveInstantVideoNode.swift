@@ -522,6 +522,7 @@ public class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
             }
             
             var edited = false
+            var deleted = false
             if item.attributes.updatingMedia != nil {
                 edited = true
             }
@@ -536,6 +537,8 @@ public class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
             for attribute in item.message.attributes {
                 if let attribute = attribute as? EditedMessageAttribute {
                    edited = !attribute.isHidden
+                } else if attribute is DeletedMessageAttribute {
+                    deleted = true
                 } else if let attribute = attribute as? ViewCountMessageAttribute {
                     viewCount = attribute.count
                 } else if let attribute = attribute as? ReplyThreadMessageAttribute, case .peer = item.chatLocation {
@@ -577,6 +580,7 @@ public class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
                 context: item.context,
                 presentationData: item.presentationData,
                 edited: edited && !sentViaBot && !item.presentationData.isPreview,
+                deleted: deleted,
                 impressionCount: !item.presentationData.isPreview ? viewCount : nil,
                 dateText: dateText,
                 type: statusType,
