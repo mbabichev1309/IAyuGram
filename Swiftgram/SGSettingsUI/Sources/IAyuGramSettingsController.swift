@@ -154,18 +154,23 @@ func iAyuPeerId(fromServerChatId chatId: Int64) -> PeerId {
 // badge) instead of it silently vanishing. If the event has photo media, fetch the
 // bytes from the companion server and attach them; otherwise text-only.
 func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
-    if event.mediaKind == "photo" {
-        // Fetch bytes first, then insert the message with the image attached. If the
+    let kind = event.mediaKind
+    if kind == "photo" || kind == "voice" || kind == "round" {
+        // Fetch bytes first, then insert the message with the media attached. If the
         // fetch fails we still insert the text placeholder so the delete is visible.
         iAyuFetchMediaBytes(event: event) { data in
             var media: [Media] = []
-            if let data = data, let image = iAyuBuildPhotoMedia(postbox: context.account.postbox, data: data, event: event) {
-                media = [image]
+            if let data = data {
+                let postbox = context.account.postbox
+                if kind == "photo", let image = iAyuBuildPhotoMedia(postbox: postbox, data: data, event: event) {
+                    media = [image]
+                } else if let file = iAyuBuildFileMedia(postbox: postbox, data: data, event: event) {
+                    media = [file]
+                }
             }
             iAyuInsertDeleted(context: context, event: event, media: media)
         }
     } else {
-        // Voice/round (TelegramMediaFile) not materialized yet — text placeholder.
         iAyuInsertDeleted(context: context, event: event, media: [])
     }
 }
@@ -229,6 +234,47 @@ private func iAyuBuildPhotoMedia(postbox: Postbox, data: Data, event: IAyuMessag
         reference: nil,
         partialReference: nil,
         flags: []
+    )
+}
+
+// Build a local voice/round-video media from downloaded bytes (same media-box
+// caching as photos). Voice → an Audio(isVoice) file; round → a Video with the
+// instantRoundVideo flag. Waveform isn't captured, so voice shows a flat one.
+private func iAyuBuildFileMedia(postbox: Postbox, data: Data, event: IAyuMessageEvent) -> TelegramMediaFile? {
+    let fileId = Int64.random(in: Int64.min ... Int64.max)
+    let resource = LocalFileMediaResource(fileId: fileId, size: Int64(data.count))
+    postbox.mediaBox.storeResourceData(resource.id, data: data, synchronous: true)
+    let duration = event.mediaDuration ?? 0
+    var attributes: [TelegramMediaFileAttribute] = []
+    let mimeType: String
+    if event.mediaKind == "voice" {
+        attributes.append(.Audio(isVoice: true, duration: duration, title: nil, performer: nil, waveform: nil))
+        mimeType = event.mediaMime ?? "audio/ogg"
+    } else {
+        let width = Int32(event.mediaWidth ?? 0)
+        let height = Int32(event.mediaHeight ?? 0)
+        attributes.append(.Video(
+            duration: Double(duration),
+            size: PixelDimensions(width: width > 0 ? width : 240, height: height > 0 ? height : 240),
+            flags: [.instantRoundVideo],
+            preloadSize: nil,
+            coverTime: nil,
+            videoCodec: nil
+        ))
+        mimeType = event.mediaMime ?? "video/mp4"
+    }
+    return TelegramMediaFile(
+        fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: fileId),
+        partialReference: nil,
+        resource: resource,
+        previewRepresentations: [],
+        videoThumbnails: [],
+        videoCover: nil,
+        immediateThumbnailData: nil,
+        mimeType: mimeType,
+        size: Int64(data.count),
+        attributes: attributes,
+        alternativeRepresentations: []
     )
 }
 
