@@ -29,11 +29,9 @@ public final class IAyuSyncManager {
     private var liveSession: IAyuLiveSession?
     private var active = true
     // Cursors seen this session, so an event that arrives on both /live and the
-    // gap-sync backfill isn't processed twice.
+    // gap-sync backfill isn't processed twice, and so the persisted cursor can be
+    // advanced only along a contiguous prefix (no gaps → no missed events on crash).
     private var processedCursors = Set<Int>()
-    // Message ids already materialized this session, so one deleted message yields at
-    // most one placeholder even if the server re-emits it under a new cursor.
-    private var materializedMessageIds = Set<Int64>()
 
     public init(context: AccountContext) {
         self.context = context
@@ -68,16 +66,37 @@ public final class IAyuSyncManager {
             }
             self.processedCursors.insert(event.cursor)
             if event.kind == "deleted" {
-                if !self.materializedMessageIds.contains(event.messageId) {
-                    self.materializedMessageIds.insert(event.messageId)
+                // Persistent dedup by peerId+messageId: gap-sync can re-deliver an
+                // already-applied delete across launches (when the cursor lags a
+                // gap), and this stops it from inserting a second placeholder.
+                let peerId = iAyuPeerId(fromServerChatId: event.chatId).toInt64()
+                if !IAyuMaterializedDeletesStore.shared.contains(peerId: peerId, messageId: event.messageId) {
+                    IAyuMaterializedDeletesStore.shared.insert(peerId: peerId, messageId: event.messageId)
                     iAyuMaterializeDeleted(context: self.context, event: event)
                 }
             } else if event.kind == "edited" {
-                self.applyEdit(event)
+                self.applyEdit(event)  // IAyuEditHistoryStore dedups by cursor persistently
             }
-            if event.cursor > Int(SGSimpleSettings.shared.iaSyncCursor) {
-                SGSimpleSettings.shared.iaSyncCursor = Int32(clamping: event.cursor)
-            }
+            self.advancePersistedCursor()
+        }
+    }
+
+    // Advance the persisted cursor only along the CONTIGUOUS processed prefix. If a
+    // later event (e.g. live cursor 105) is processed while an earlier one (100) is
+    // still in flight, the cursor stays put until the gap fills — so a crash never
+    // skips 100. On the next launch gap-sync re-fetches from the persisted point and
+    // the dedup above/edit store drop anything already applied. Must run on the main
+    // queue (called only from handle()).
+    private func advancePersistedCursor() {
+        var cursor = Int(SGSimpleSettings.shared.iaSyncCursor)
+        while self.processedCursors.contains(cursor + 1) {
+            cursor += 1
+        }
+        if cursor > Int(SGSimpleSettings.shared.iaSyncCursor) {
+            SGSimpleSettings.shared.iaSyncCursor = Int32(clamping: cursor)
+            // Cursors at/below the persisted point are settled — drop them to keep
+            // the in-memory set bounded (re-delivery is caught by the persistent dedup).
+            self.processedCursors = self.processedCursors.filter { $0 > cursor }
         }
     }
 
@@ -120,12 +139,20 @@ public final class IAyuSyncManager {
             if response.events.count >= iAyuGapSyncPageLimit, let lastCursor = response.events.last?.cursor {
                 // A full page — more may remain; keep paging from the last cursor.
                 self.gapSync(serverURL: serverURL, token: token, since: lastCursor)
-            } else {
-                // Caught up: advance the persisted cursor to the server's latest.
+            } else if let maxReceived = response.events.map({ $0.cursor }).max() {
+                // Fully caught up. Everything the server had up to maxReceived has now
+                // been delivered, so advance the cursor to it — this closes PERMANENT
+                // gaps in the historical cursor sequence (sqlite AUTOINCREMENT can skip
+                // values, and a fresh client starts at 0 far below the first cursor)
+                // that the contiguous advance would otherwise stall on forever. Only
+                // up to maxReceived (not the server's latest) so a delete racing in
+                // between the query's two statements isn't skipped — it re-syncs next
+                // launch or arrives on /live.
                 Queue.mainQueue().async {
                     guard self.active else { return }
-                    if response.latestCursor > Int(SGSimpleSettings.shared.iaSyncCursor) {
-                        SGSimpleSettings.shared.iaSyncCursor = Int32(clamping: response.latestCursor)
+                    if maxReceived > Int(SGSimpleSettings.shared.iaSyncCursor) {
+                        SGSimpleSettings.shared.iaSyncCursor = Int32(clamping: maxReceived)
+                        self.processedCursors = self.processedCursors.filter { $0 > maxReceived }
                     }
                 }
             }
