@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import SwiftSignalKit
 import Postbox
 import TelegramCore
@@ -32,30 +33,74 @@ public final class IAyuSyncManager {
     // gap-sync backfill isn't processed twice, and so the persisted cursor can be
     // advanced only along a contiguous prefix (no gaps → no missed events on crash).
     private var processedCursors = Set<Int>()
+    private var serverURL = ""
+    private var token = ""
+    private var reconnectDelay = 5.0
+    private var foregroundObserver: NSObjectProtocol?
 
     public init(context: AccountContext) {
         self.context = context
         self.start()
+        // The iOS app is suspended in the background, killing the socket; reconnect
+        // and catch up whenever it returns to the foreground.
+        self.foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.onForeground()
+        }
     }
 
     deinit {
         self.active = false
         self.liveSession?.stop()
+        if let observer = self.foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     private func start() {
-        let serverURL = SGSimpleSettings.shared.iaSyncServerURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let token = SGSimpleSettings.shared.iaSyncClientToken
-        guard !serverURL.isEmpty, !token.isEmpty else {
+        self.serverURL = SGSimpleSettings.shared.iaSyncServerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.token = SGSimpleSettings.shared.iaSyncClientToken
+        guard !self.serverURL.isEmpty, !self.token.isEmpty else {
             // Companion server not configured — nothing to sync.
             return
         }
         // Connect live first so events firing during the gap-sync fetch aren't lost;
         // the cursor dedup below drops any that both paths deliver.
-        self.liveSession = IAyuLiveSession(serverURL: serverURL, token: token, onEvent: { [weak self] event in
+        self.connectLive()
+        self.gapSync(serverURL: self.serverURL, token: self.token, since: Int(SGSimpleSettings.shared.iaSyncCursor))
+    }
+
+    private func connectLive() {
+        self.liveSession?.stop()
+        self.liveSession = IAyuLiveSession(serverURL: self.serverURL, token: self.token, onEvent: { [weak self] event in
             self?.handle(event)
-        }, onStatus: { _ in })
-        self.gapSync(serverURL: serverURL, token: token, since: Int(SGSimpleSettings.shared.iaSyncCursor))
+        }, onStatus: { [weak self] status in
+            // Reset the backoff once we're actually connected.
+            if status.contains("connected") {
+                self?.reconnectDelay = 5.0
+            }
+        }, onClosed: { [weak self] in
+            self?.scheduleReconnect()
+        })
+    }
+
+    // Reconnect with exponential backoff (5s → 60s cap) after the socket drops, and
+    // gap-sync to catch anything missed while disconnected (dedup guards duplicates).
+    private func scheduleReconnect() {
+        guard self.active, !self.serverURL.isEmpty else { return }
+        let delay = self.reconnectDelay
+        self.reconnectDelay = min(self.reconnectDelay * 2.0, 60.0)
+        Queue.mainQueue().after(delay, { [weak self] in
+            guard let self = self, self.active else { return }
+            self.connectLive()
+            self.gapSync(serverURL: self.serverURL, token: self.token, since: Int(SGSimpleSettings.shared.iaSyncCursor))
+        })
+    }
+
+    private func onForeground() {
+        guard self.active, !self.serverURL.isEmpty else { return }
+        self.reconnectDelay = 5.0
+        self.connectLive()
+        self.gapSync(serverURL: self.serverURL, token: self.token, since: Int(SGSimpleSettings.shared.iaSyncCursor))
     }
 
     private func handle(_ event: IAyuMessageEvent) {
