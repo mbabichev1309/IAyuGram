@@ -189,7 +189,7 @@ func iAyuPeerId(fromServerChatId chatId: Int64) -> PeerId {
 // bytes from the companion server and attach them; otherwise text-only.
 func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
     let kind = event.mediaKind
-    if kind == "photo" || kind == "voice" || kind == "round" {
+    if kind == "photo" || kind == "voice" || kind == "round" || kind == "sticker" {
         // Fetch bytes first, then insert the message with the media attached. If the
         // fetch fails we still insert the text placeholder so the delete is visible.
         iAyuFetchMediaBytes(event: event) { data in
@@ -198,6 +198,8 @@ func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
                 let postbox = context.account.postbox
                 if kind == "photo", let image = iAyuBuildPhotoMedia(postbox: postbox, data: data, event: event) {
                     media = [image]
+                } else if kind == "sticker", let sticker = iAyuBuildStickerMedia(postbox: postbox, data: data, event: event) {
+                    media = [sticker]
                 } else if let file = iAyuBuildFileMedia(postbox: postbox, data: data, event: event) {
                     media = [file]
                 }
@@ -303,6 +305,44 @@ private func iAyuBuildFileMedia(postbox: Postbox, data: Data, event: IAyuMessage
         ))
         attributes.append(.FileName(fileName: "video_message.mp4"))
         mimeType = event.mediaMime ?? "video/mp4"
+    }
+    return TelegramMediaFile(
+        fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: fileId),
+        partialReference: nil,
+        resource: resource,
+        previewRepresentations: [],
+        videoThumbnails: [],
+        videoCover: nil,
+        immediateThumbnailData: nil,
+        mimeType: mimeType,
+        size: Int64(data.count),
+        attributes: attributes,
+        alternativeRepresentations: []
+    )
+}
+
+// Variant B: materialize a deleted sticker as a real sticker file (TelegramMediaFile
+// with a Sticker attribute), so animated/video stickers render properly. If the
+// dedicated sticker item node doesn't render our synthetic local message (as with
+// round video), fall back to treating it as an image/video.
+private func iAyuBuildStickerMedia(postbox: Postbox, data: Data, event: IAyuMessageEvent) -> TelegramMediaFile? {
+    let fileId = Int64.random(in: Int64.min ... Int64.max)
+    let resource = LocalFileMediaResource(fileId: fileId, size: Int64(data.count))
+    postbox.mediaBox.storeResourceData(resource.id, data: data, synchronous: true)
+    let width = Int32(event.mediaWidth ?? 0)
+    let height = Int32(event.mediaHeight ?? 0)
+    let mimeType = event.mediaMime ?? "image/webp"
+    var attributes: [TelegramMediaFileAttribute] = [
+        .Sticker(displayText: "", packReference: nil, maskData: nil),
+        .ImageSize(size: PixelDimensions(width: width > 0 ? width : 512, height: height > 0 ? height : 512)),
+    ]
+    if mimeType.contains("tgsticker") {
+        attributes.append(.Animated)
+        attributes.append(.FileName(fileName: "sticker.tgs"))
+    } else if mimeType.contains("webm") {
+        attributes.append(.FileName(fileName: "sticker.webm"))
+    } else {
+        attributes.append(.FileName(fileName: "sticker.webp"))
     }
     return TelegramMediaFile(
         fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: fileId),
