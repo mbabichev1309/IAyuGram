@@ -111,6 +111,7 @@ public class SGSimpleSettings {
         case iaGhostStayOffline
         case iaGhostHideTyping
         case iaGhostHideConsumed
+        case iaGhostInvisibleSend
         case bottomTabStyle
         case rememberLastFolder
         case lastAccountFolders
@@ -282,6 +283,7 @@ public class SGSimpleSettings {
         Keys.iaGhostStayOffline.rawValue: false,
         Keys.iaGhostHideTyping.rawValue: false,
         Keys.iaGhostHideConsumed.rawValue: false,
+        Keys.iaGhostInvisibleSend.rawValue: false,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
         Keys.lastAccountFolders.rawValue: [:],
@@ -424,6 +426,11 @@ public class SGSimpleSettings {
 
     @UserDefault(key: Keys.iaGhostHideConsumed.rawValue)
     public var iaGhostHideConsumed: Bool
+
+    // IAyuGram ghost: send messages as scheduled (~12s out) so sending doesn't bump
+    // you online. Off by default — it delays your messages. See EnqueueMessage.
+    @UserDefault(key: Keys.iaGhostInvisibleSend.rawValue)
+    public var iaGhostInvisibleSend: Bool
     
     @UserDefault(key: Keys.rememberLastFolder.rawValue)
     public var rememberLastFolder: Bool

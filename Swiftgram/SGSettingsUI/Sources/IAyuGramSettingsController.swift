@@ -398,14 +398,16 @@ private final class IAyuHubArguments {
     let toggleStayOffline: (Bool) -> Void
     let toggleHideTyping: (Bool) -> Void
     let toggleHideConsumed: (Bool) -> Void
+    let toggleInvisibleSend: (Bool) -> Void
     let openAppearance: () -> Void
     let openConnection: () -> Void
 
-    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, toggleHideConsumed: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, toggleHideConsumed: @escaping (Bool) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleHideReadReceipts = toggleHideReadReceipts
         self.toggleStayOffline = toggleStayOffline
         self.toggleHideTyping = toggleHideTyping
         self.toggleHideConsumed = toggleHideConsumed
+        self.toggleInvisibleSend = toggleInvisibleSend
         self.openAppearance = openAppearance
         self.openConnection = openConnection
     }
@@ -422,13 +424,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case ghostStayOffline(String, Bool)
     case ghostHideTyping(String, Bool)
     case ghostHideConsumed(String, Bool)
+    case ghostInvisibleSend(String, Bool)
     case ghostInfo(String)
     case appearance(String)
     case connection(String)
 
     var section: ItemListSectionId {
         switch self {
-        case .ghostHeader, .ghostHideReadReceipts, .ghostStayOffline, .ghostHideTyping, .ghostHideConsumed, .ghostInfo:
+        case .ghostHeader, .ghostHideReadReceipts, .ghostStayOffline, .ghostHideTyping, .ghostHideConsumed, .ghostInvisibleSend, .ghostInfo:
             return IAyuHubSection.ghost.rawValue
         case .appearance, .connection:
             return IAyuHubSection.screens.rawValue
@@ -442,9 +445,10 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .ghostStayOffline: return 2
         case .ghostHideTyping: return 3
         case .ghostHideConsumed: return 4
-        case .ghostInfo: return 5
-        case .appearance: return 6
-        case .connection: return 7
+        case .ghostInvisibleSend: return 5
+        case .ghostInfo: return 6
+        case .appearance: return 7
+        case .connection: return 8
         }
     }
 
@@ -463,6 +467,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let (.ghostHideTyping(a1, a2), .ghostHideTyping(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.ghostHideConsumed(a1, a2), .ghostHideConsumed(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.ghostInvisibleSend(a1, a2), .ghostInvisibleSend(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.ghostInfo(a), .ghostInfo(b)):
             return a == b
@@ -496,6 +502,10 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleHideConsumed(newValue)
             })
+        case let .ghostInvisibleSend(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleInvisibleSend(newValue)
+            })
         case let .ghostInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .appearance(title):
@@ -515,6 +525,7 @@ private struct IAyuHubState: Equatable {
     var stayOffline: Bool
     var hideTyping: Bool
     var hideConsumed: Bool
+    var invisibleSend: Bool
 }
 
 public func iAyuGramSettingsController(context: AccountContext) -> ViewController {
@@ -522,7 +533,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         hideReadReceipts: SGSimpleSettings.shared.iaGhostHideReadReceipts,
         stayOffline: SGSimpleSettings.shared.iaGhostStayOffline,
         hideTyping: SGSimpleSettings.shared.iaGhostHideTyping,
-        hideConsumed: SGSimpleSettings.shared.iaGhostHideConsumed
+        hideConsumed: SGSimpleSettings.shared.iaGhostHideConsumed,
+        invisibleSend: SGSimpleSettings.shared.iaGhostInvisibleSend
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -560,6 +572,13 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             state.hideConsumed = value
             return state
         }
+    }, toggleInvisibleSend: { value in
+        SGSimpleSettings.shared.iaGhostInvisibleSend = value
+        updateState { state in
+            var state = state
+            state.invisibleSend = value
+            return state
+        }
     }, openAppearance: {
         pushControllerImpl?(iAyuGramAppearanceController(context: context))
     }, openConnection: {
@@ -574,7 +593,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.ghostStayOffline("Stay offline", state.stayOffline))
         entries.append(.ghostHideTyping("Don't send typing", state.hideTyping))
         entries.append(.ghostHideConsumed("Don't mark voice/video as listened", state.hideConsumed))
-        entries.append(.ghostInfo("Others won't see your read receipts, online status, typing, or when you play their voice/video messages. Sending a message still briefly shows you online (invisible send comes later)."))
+        entries.append(.ghostInvisibleSend("Invisible send", state.invisibleSend))
+        entries.append(.ghostInfo("Others won't see your read receipts, online status, typing, or when you play their voice/video messages. Invisible send delays your messages ~12s (sent as scheduled) so sending doesn't show you online — expect the ~12s delay."))
         entries.append(.appearance("Appearance"))
         entries.append(.connection("Connection keys"))
 
