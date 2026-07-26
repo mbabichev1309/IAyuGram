@@ -2,6 +2,7 @@ import Foundation
 import Postbox
 import TelegramApi
 import SwiftSignalKit
+import SGSimpleSettings
 
 
 private enum PeerReadStateMarker: Equatable {
@@ -249,12 +250,19 @@ private func pushPeerReadState(network: Network, postbox: Postbox, stateManager:
                 let (channelId, accessHash) = (inputPeerChannelData.channelId, inputPeerChannelData.accessHash)
                 switch readState {
                 case let .idBased(maxIncomingReadId, _, _, _, markedUnread):
-                    var pushSignal: Signal<Void, NoError> = network.request(Api.functions.channels.readHistory(channel: Api.InputChannel.inputChannel(.init(channelId: channelId, accessHash: accessHash)), maxId: maxIncomingReadId))
-                    |> `catch` { _ -> Signal<Api.Bool, NoError> in
-                        return .complete()
-                    }
-                    |> mapToSignal { _ -> Signal<Void, NoError> in
-                        return .complete()
+                    // IAyuGram ghost mode: don't push our read position to the server
+                    // (no "seen" mark for others, and reading won't bump us online).
+                    var pushSignal: Signal<Void, NoError>
+                    if SGSimpleSettings.shared.iaGhostHideReadReceipts {
+                        pushSignal = .complete()
+                    } else {
+                        pushSignal = network.request(Api.functions.channels.readHistory(channel: Api.InputChannel.inputChannel(.init(channelId: channelId, accessHash: accessHash)), maxId: maxIncomingReadId))
+                        |> `catch` { _ -> Signal<Api.Bool, NoError> in
+                            return .complete()
+                        }
+                        |> mapToSignal { _ -> Signal<Void, NoError> in
+                            return .complete()
+                        }
                     }
                     if markedUnread {
                         pushSignal = pushSignal
@@ -279,11 +287,18 @@ private func pushPeerReadState(network: Network, postbox: Postbox, stateManager:
             default:
                 switch readState {
                 case let .idBased(maxIncomingReadId, _, _, _, markedUnread):
-                    var pushSignal: Signal<Void, NoError> = network.request(Api.functions.messages.readHistory(peer: inputPeer, maxId: maxIncomingReadId))
-                    |> map(Optional.init)
-                    |> `catch` { _ -> Signal<Api.messages.AffectedMessages?, NoError> in
-                        return .single(nil)
+                    // IAyuGram ghost mode: skip the readHistory push (see above).
+                    let readHistoryRequest: Signal<Api.messages.AffectedMessages?, NoError>
+                    if SGSimpleSettings.shared.iaGhostHideReadReceipts {
+                        readHistoryRequest = .single(nil)
+                    } else {
+                        readHistoryRequest = network.request(Api.functions.messages.readHistory(peer: inputPeer, maxId: maxIncomingReadId))
+                        |> map(Optional.init)
+                        |> `catch` { _ -> Signal<Api.messages.AffectedMessages?, NoError> in
+                            return .single(nil)
+                        }
                     }
+                    var pushSignal: Signal<Void, NoError> = readHistoryRequest
                     |> mapToSignal { result -> Signal<Void, NoError> in
                         if let result = result {
                             switch result {
