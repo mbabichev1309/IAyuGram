@@ -63,14 +63,18 @@ final class IAyuLiveSession {
     private let task: URLSessionWebSocketTask
     private let onEvent: (IAyuMessageEvent) -> Void
     private let onStatus: (String) -> Void
+    // Called once when the socket closes/fails, so the owner can reconnect.
+    private let onClosed: (() -> Void)?
     private var active = true
+    private var didNotifyClosed = false
 
-    init?(serverURL: String, token: String, onEvent: @escaping (IAyuMessageEvent) -> Void, onStatus: @escaping (String) -> Void) {
+    init?(serverURL: String, token: String, onEvent: @escaping (IAyuMessageEvent) -> Void, onStatus: @escaping (String) -> Void, onClosed: (() -> Void)? = nil) {
         guard let url = IAyuLiveSession.liveURL(serverURL: serverURL, token: token) else {
             return nil
         }
         self.onEvent = onEvent
         self.onStatus = onStatus
+        self.onClosed = onClosed
         self.task = URLSession.shared.webSocketTask(with: url)
         self.task.resume()
         onStatus("Live: connecting…")
@@ -82,11 +86,36 @@ final class IAyuLiveSession {
                 guard let self = self, self.active else { return }
                 if let error = error {
                     self.onStatus("Live: failed — \(error.localizedDescription)")
+                    self.notifyClosed()
                 } else {
                     self.onStatus("Live: connected ✅ (listening for events)")
                 }
             }
         }
+        // Keepalive: /live is silent until an event, so an idle socket gets closed by
+        // proxies (Tailscale Funnel) after ~30–60s. Periodic pings keep it alive.
+        self.scheduleKeepalive()
+    }
+
+    private func scheduleKeepalive() {
+        Queue.mainQueue().after(20.0, { [weak self] in
+            guard let self = self, self.active else { return }
+            self.task.sendPing { [weak self] error in
+                guard let self = self, self.active else { return }
+                if error != nil {
+                    Queue.mainQueue().async {
+                        self.notifyClosed()
+                    }
+                }
+            }
+            self.scheduleKeepalive()
+        })
+    }
+
+    private func notifyClosed() {
+        guard self.active, !self.didNotifyClosed else { return }
+        self.didNotifyClosed = true
+        self.onClosed?()
     }
 
     static func liveURL(serverURL: String, token: String) -> URL? {
@@ -120,6 +149,7 @@ final class IAyuLiveSession {
             case let .failure(error):
                 Queue.mainQueue().async {
                     self.onStatus("Live: disconnected — \(error.localizedDescription)")
+                    self.notifyClosed()
                 }
             }
         }
