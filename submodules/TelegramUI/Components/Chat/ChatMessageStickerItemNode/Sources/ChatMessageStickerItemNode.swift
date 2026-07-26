@@ -618,6 +618,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
             }
             
             var edited = false
+            var deleted = false
             var viewCount: Int? = nil
             var dateReplies = 0
             var starsCount: Int64?
@@ -628,6 +629,8 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
             for attribute in item.message.attributes {
                 if let attribute = attribute as? EditedMessageAttribute, isEmoji {
                     edited = !attribute.isHidden
+                } else if attribute is DeletedMessageAttribute {
+                    deleted = true
                 } else if let attribute = attribute as? ViewCountMessageAttribute {
                     viewCount = attribute.count
                 } else if let attribute = attribute as? ReplyThreadMessageAttribute, case .peer = item.chatLocation {
@@ -656,6 +659,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                 context: item.context,
                 presentationData: item.presentationData,
                 edited: edited,
+                deleted: deleted,
                 impressionCount: viewCount,
                 dateText: dateText,
                 type: statusType,
