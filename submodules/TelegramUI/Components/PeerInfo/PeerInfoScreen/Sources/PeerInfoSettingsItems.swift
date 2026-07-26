@@ -213,6 +213,7 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
         swiftgramLabel = .none
     }
 
+    let sgWebSettings = context.currentAppConfiguration.with({ $0 }).sgWebSettings
 
     // MARK: IAyuGram — the Swiftgram Pro entry is hidden in this fork.
     items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "Swiftgram", icon: PresentationResourcesSettings.swiftgram, action: {
