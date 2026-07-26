@@ -376,54 +376,29 @@ class ThemeSettingsAppIconItemNode: ListViewItemNode, ItemListItemNode {
                             var name = "Icon"
                             var bordered = true
                             switch icon.name {
-                                case "SGDefault":
+                                // MARK: IAyuGram
+                                case "IAyuGradient":
                                     name = item.strings.Appearance_AppIconDefault
                                     bordered = false
-                                case "SGBlack":
-                                    name = "Black"
+                                case "IAyuClassic":
+                                    name = "Classic"
                                     bordered = false
-                                case "SGLegacy":
-                                    name = "Legacy"
+                                case "IAyuContour":
+                                    name = "Contour"
                                     bordered = false
-                                case "SGInverted":
-                                    name = "Inverted"
-                                case "SGWhite":
-                                    name = "White"
-                                case "SGNight":
-                                    name = "Night"
+                                case "IAyuContrast":
+                                    name = "Contrast"
                                     bordered = false
-                                case "SGSky":
-                                    name = "Sky"
+                                case "IAyuGeek":
+                                    name = "Geek"
                                     bordered = false
-                                case "SGTitanium":
-                                    name = "Titanium"
+                                case "IAyuMonochromium":
+                                    name = "Monochromium"
+                                case "IAyuPremium":
+                                    name = "Premium"
                                     bordered = false
-                                case "SGNeon":
-                                    name = "Neon"
-                                    bordered = false
-                                case "SGNeonBlue":
-                                    name = "Neon Blue"
-                                    bordered = false
-                                case "SGGlass":
-                                    name = "Glass"
-                                    bordered = false
-                                case "SGSparkling":
-                                    name = "Sparkling"
-                                    bordered = false
-                                case "SGBeta":
-                                    name = "β Beta"
-                                    bordered = false
-                                case "SGPro":
-                                    name = "Pro"
-                                    bordered = false
-                                case "SGGold":
-                                    name = "Gold"
-                                    bordered = false
-                                case "SGDucky":
-                                    name = "Ducky"
-                                    bordered = false
-                                case "SGDay":
-                                    name = "Day"
+                                case "IAyuSunset":
+                                    name = "Sunset"
                                     bordered = false
                                 case "BlueIcon":
                                     name = item.strings.Appearance_AppIconDefault
