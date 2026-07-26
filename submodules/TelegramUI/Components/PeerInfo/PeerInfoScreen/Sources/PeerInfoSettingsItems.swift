@@ -13,6 +13,7 @@ import ItemListPeerItem
 import DeviceAccess
 import TelegramStringFormatting
 import PeerNameColorItem
+import SGSimpleSettings
 
 enum SettingsSection: Int, CaseIterable {
     case edit
@@ -20,6 +21,7 @@ enum SettingsSection: Int, CaseIterable {
     case accounts
     case myProfile
     case proxy
+    case iAyuGram
     case swiftgram
     case swiftgramPro
     case apps
@@ -211,28 +213,27 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
         swiftgramLabel = .none
     }
 
-    let hasNewSGProFeatures = {
-        return false
-    }
-    let swiftgramProLabel: PeerInfoScreenDisclosureItem.Label
-    if hasNewSGProFeatures() {
-        swiftgramProLabel = .titleBadge(presentationData.strings.Settings_New, presentationData.theme.list.itemAccentColor)
-    } else {
-        swiftgramProLabel = .none
-    }
-    
-    
-    let sgWebSettings = context.currentAppConfiguration.with({ $0 }).sgWebSettings
-    if sgWebSettings.global.paymentsEnabled || context.sharedContext.immediateSGStatus.status > 1 {
-        items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 0, label: swiftgramProLabel, text: "Swiftgram Pro", icon: PresentationResourcesSettings.swiftgramPro, action: {
-            interaction.openSettings(.swiftgramPro)
-        }))
-    }
+
+    // MARK: IAyuGram — the Swiftgram Pro entry is hidden in this fork.
     items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "Swiftgram", icon: PresentationResourcesSettings.swiftgram, action: {
         interaction.openSettings(.swiftgram)
     }))
-    // MARK: IAyuGram — TODO: replace icon with a dedicated IAyuGram asset
-    items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 2, label: .none, text: "IAyuGram", icon: PresentationResourcesSettings.swiftgram, action: {
+    // MARK: IAyuGram — own section above Swiftgram. TODO: replace icons with dedicated IAyuGram assets
+    let ghostSettings = SGSimpleSettings.shared
+    let ghostModeEnabled = ghostSettings.iaGhostHideReadReceipts
+        && ghostSettings.iaGhostStayOffline
+        && ghostSettings.iaGhostHideTyping
+        && ghostSettings.iaGhostHideConsumed
+        && ghostSettings.iaGhostInvisibleSend
+    items[.iAyuGram]!.append(PeerInfoScreenSwitchItem(id: 0, text: "Ghost mode", value: ghostModeEnabled, icon: PresentationResourcesSettings.security, isLocked: false, toggled: { value in
+        let settings = SGSimpleSettings.shared
+        settings.iaGhostHideReadReceipts = value
+        settings.iaGhostStayOffline = value
+        settings.iaGhostHideTyping = value
+        settings.iaGhostHideConsumed = value
+        settings.iaGhostInvisibleSend = value
+    }))
+    items[.iAyuGram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: .none, text: "IAyuGram", icon: PresentationResourcesSettings.swiftgram, action: {
         interaction.openSettings(.iAyuGram)
     }))
 
