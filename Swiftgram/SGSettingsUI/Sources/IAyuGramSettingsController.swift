@@ -319,20 +319,23 @@ private func iAyuFetchMediaBytes(event: IAyuMessageEvent, completion: @escaping 
     }.resume()
 }
 
-// IAyuGram hub (root screen): a ghost-mode section (placeholder toggles, wired to
-// behavior later) plus navigation into the Appearance and Connection-keys screens.
+// IAyuGram hub (root screen): a ghost-mode section (functional toggles — each gates
+// an outgoing-signal seam in TelegramCore/TelegramUI) plus navigation into the
+// Appearance and Connection-keys screens.
 
 private final class IAyuHubArguments {
     let toggleHideReadReceipts: (Bool) -> Void
     let toggleStayOffline: (Bool) -> Void
     let toggleHideTyping: (Bool) -> Void
+    let toggleHideConsumed: (Bool) -> Void
     let openAppearance: () -> Void
     let openConnection: () -> Void
 
-    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, toggleHideConsumed: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleHideReadReceipts = toggleHideReadReceipts
         self.toggleStayOffline = toggleStayOffline
         self.toggleHideTyping = toggleHideTyping
+        self.toggleHideConsumed = toggleHideConsumed
         self.openAppearance = openAppearance
         self.openConnection = openConnection
     }
@@ -348,13 +351,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case ghostHideReadReceipts(String, Bool)
     case ghostStayOffline(String, Bool)
     case ghostHideTyping(String, Bool)
+    case ghostHideConsumed(String, Bool)
     case ghostInfo(String)
     case appearance(String)
     case connection(String)
 
     var section: ItemListSectionId {
         switch self {
-        case .ghostHeader, .ghostHideReadReceipts, .ghostStayOffline, .ghostHideTyping, .ghostInfo:
+        case .ghostHeader, .ghostHideReadReceipts, .ghostStayOffline, .ghostHideTyping, .ghostHideConsumed, .ghostInfo:
             return IAyuHubSection.ghost.rawValue
         case .appearance, .connection:
             return IAyuHubSection.screens.rawValue
@@ -367,9 +371,10 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .ghostHideReadReceipts: return 1
         case .ghostStayOffline: return 2
         case .ghostHideTyping: return 3
-        case .ghostInfo: return 4
-        case .appearance: return 5
-        case .connection: return 6
+        case .ghostHideConsumed: return 4
+        case .ghostInfo: return 5
+        case .appearance: return 6
+        case .connection: return 7
         }
     }
 
@@ -386,6 +391,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let (.ghostStayOffline(a1, a2), .ghostStayOffline(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.ghostHideTyping(a1, a2), .ghostHideTyping(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.ghostHideConsumed(a1, a2), .ghostHideConsumed(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.ghostInfo(a), .ghostInfo(b)):
             return a == b
@@ -404,16 +411,20 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let .ghostHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .ghostHideReadReceipts(title, value):
-            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, enabled: false, sectionId: self.section, style: .blocks, updated: { newValue in
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleHideReadReceipts(newValue)
             })
         case let .ghostStayOffline(title, value):
-            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, enabled: false, sectionId: self.section, style: .blocks, updated: { newValue in
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleStayOffline(newValue)
             })
         case let .ghostHideTyping(title, value):
-            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, enabled: false, sectionId: self.section, style: .blocks, updated: { newValue in
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleHideTyping(newValue)
+            })
+        case let .ghostHideConsumed(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleHideConsumed(newValue)
             })
         case let .ghostInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
@@ -433,13 +444,15 @@ private struct IAyuHubState: Equatable {
     var hideReadReceipts: Bool
     var stayOffline: Bool
     var hideTyping: Bool
+    var hideConsumed: Bool
 }
 
 public func iAyuGramSettingsController(context: AccountContext) -> ViewController {
     let initialState = IAyuHubState(
         hideReadReceipts: SGSimpleSettings.shared.iaGhostHideReadReceipts,
         stayOffline: SGSimpleSettings.shared.iaGhostStayOffline,
-        hideTyping: SGSimpleSettings.shared.iaGhostHideTyping
+        hideTyping: SGSimpleSettings.shared.iaGhostHideTyping,
+        hideConsumed: SGSimpleSettings.shared.iaGhostHideConsumed
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -470,6 +483,13 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             state.hideTyping = value
             return state
         }
+    }, toggleHideConsumed: { value in
+        SGSimpleSettings.shared.iaGhostHideConsumed = value
+        updateState { state in
+            var state = state
+            state.hideConsumed = value
+            return state
+        }
     }, openAppearance: {
         pushControllerImpl?(iAyuGramAppearanceController(context: context))
     }, openConnection: {
@@ -483,7 +503,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.ghostHideReadReceipts("Don't send read receipts", state.hideReadReceipts))
         entries.append(.ghostStayOffline("Stay offline", state.stayOffline))
         entries.append(.ghostHideTyping("Don't send typing", state.hideTyping))
-        entries.append(.ghostInfo("Ghost mode is not active yet — coming soon."))
+        entries.append(.ghostHideConsumed("Don't mark voice/video as listened", state.hideConsumed))
+        entries.append(.ghostInfo("Others won't see your read receipts, online status, typing, or when you play their voice/video messages. Sending a message still briefly shows you online (invisible send comes later)."))
         entries.append(.appearance("Appearance"))
         entries.append(.connection("Connection keys"))
 

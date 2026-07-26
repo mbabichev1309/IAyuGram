@@ -110,6 +110,7 @@ public class SGSimpleSettings {
         case iaGhostHideReadReceipts
         case iaGhostStayOffline
         case iaGhostHideTyping
+        case iaGhostHideConsumed
         case bottomTabStyle
         case rememberLastFolder
         case lastAccountFolders
@@ -280,6 +281,7 @@ public class SGSimpleSettings {
         Keys.iaGhostHideReadReceipts.rawValue: false,
         Keys.iaGhostStayOffline.rawValue: false,
         Keys.iaGhostHideTyping.rawValue: false,
+        Keys.iaGhostHideConsumed.rawValue: false,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
         Keys.lastAccountFolders.rawValue: [:],
@@ -419,6 +421,9 @@ public class SGSimpleSettings {
 
     @UserDefault(key: Keys.iaGhostHideTyping.rawValue)
     public var iaGhostHideTyping: Bool
+
+    @UserDefault(key: Keys.iaGhostHideConsumed.rawValue)
+    public var iaGhostHideConsumed: Bool
     
     @UserDefault(key: Keys.rememberLastFolder.rawValue)
     public var rememberLastFolder: Bool
