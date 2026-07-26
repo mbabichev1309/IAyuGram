@@ -5,6 +5,7 @@ import SwiftSignalKit
 import Display
 import AsyncDisplayKit
 import TelegramCore
+import SGSimpleSettings
 import SafariServices
 import MobileCoreServices
 import Intents
@@ -873,7 +874,22 @@ extension ChatControllerImpl {
                 return
             }
             self.layoutActionOnViewTransitionAction = f
-            
+
+            // IAyuGram invisible send: the message is sent as scheduled, so it never
+            // appears in this (normal) chat — the history view transition that clears
+            // the input won't fire. Clear the input via a short fallback so it doesn't
+            // linger and you don't accidentally resend. Guarded to run at most once
+            // (the view transition, if it does fire, nils the action out first).
+            if SGSimpleSettings.shared.iaGhostInvisibleSend {
+                Queue.mainQueue().after(0.35, { [weak self] in
+                    guard let self = self, let action = self.layoutActionOnViewTransitionAction else {
+                        return
+                    }
+                    self.layoutActionOnViewTransitionAction = nil
+                    action()
+                })
+            }
+
             self.chatDisplayNode.historyNode.layoutActionOnViewTransition = ({ [weak self] transition in
                 f()
                 if let strongSelf = self, let validLayout = strongSelf.validLayout {
