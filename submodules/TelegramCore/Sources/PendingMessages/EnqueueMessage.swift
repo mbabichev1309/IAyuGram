@@ -3,6 +3,35 @@ import Postbox
 import TelegramApi
 import SwiftSignalKit
 import Emoji
+import SGSimpleSettings
+
+// IAyuGram ghost "invisible send": sending a message bumps you online server-side,
+// which no client gate can suppress. Turn outgoing messages into scheduled sends a
+// few seconds out — the server dispatches them later, without marking you online.
+// Telegram enforces a minimum scheduleDate (~10s), so this delay is near the floor.
+private let iAyuInvisibleSendDelay: Int32 = 12
+
+private func iAyuApplyInvisibleSend(peerId: PeerId, messages: [EnqueueMessage]) -> [EnqueueMessage] {
+    guard SGSimpleSettings.shared.iaGhostInvisibleSend else {
+        return messages
+    }
+    // Secret chats are end-to-end and can't be server-scheduled.
+    guard peerId.namespace != Namespaces.Peer.SecretChat else {
+        return messages
+    }
+    let scheduleTime = Int32(Date().timeIntervalSince1970) + iAyuInvisibleSendDelay
+    return messages.map { message in
+        // Leave explicitly-scheduled messages alone.
+        if message.attributes.contains(where: { $0 is OutgoingScheduleInfoMessageAttribute }) {
+            return message
+        }
+        return message.withUpdatedAttributes { attributes in
+            var attributes = attributes
+            attributes.append(OutgoingScheduleInfoMessageAttribute(scheduleTime: scheduleTime, repeatPeriod: nil))
+            return attributes
+        }
+    }
+}
 
 public enum EnqueueMessageGrouping {
     case none
@@ -394,6 +423,7 @@ private func opportunisticallyTransformOutgoingMedia(network: Network, postbox: 
 }
 
 public func enqueueMessages(account: Account, peerId: PeerId, messages: [EnqueueMessage]) -> Signal<[MessageId?], NoError> {
+    let messages = iAyuApplyInvisibleSend(peerId: peerId, messages: messages)
     let signal: Signal<[(Bool, EnqueueMessage)], NoError>
     if let transformOutgoingMessageMedia = account.transformOutgoingMessageMedia {
         signal = opportunisticallyTransformOutgoingMedia(network: account.network, postbox: account.postbox, transformOutgoingMessageMedia: transformOutgoingMessageMedia, messages: messages, userInteractive: true)
