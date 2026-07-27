@@ -8682,8 +8682,18 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                 var groupedCorrelationIds: [Int64: Int64] = [:]
                 
                 var skipAddingTransitions = false
-                
+
                 if shouldDivert {
+                    skipAddingTransitions = true
+                }
+
+                // MARK: IAyuGram — invisible send turns this into a scheduled send deeper down,
+                // so the message never reaches this history: a send transition would never
+                // complete, and `completion` (which dismisses the attachment picker) would
+                // never run. Treat it exactly like an explicitly scheduled send below.
+                let iAyuInvisibleSend = scheduleTime == nil
+                    && strongSelf.chatLocation.peerId.flatMap({ iAyuInvisibleSendApplies(peerId: $0) }) == true
+                if iAyuInvisibleSend {
                     skipAddingTransitions = true
                 }
                 
@@ -8812,8 +8822,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                 }, usedCorrelationId)
 
                 strongSelf.sendMessages(messages.map { $0.withUpdatedReplyToMessageId(replyMessageSubject?.subjectModel) }, media: true)
-                
-                if let _ = scheduleTime {
+
+                if scheduleTime != nil || iAyuInvisibleSend {
                     completion()
                 }
             })

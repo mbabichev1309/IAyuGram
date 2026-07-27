@@ -11,12 +11,20 @@ import SGSimpleSettings
 // Telegram enforces a minimum scheduleDate (~10s), so this delay is near the floor.
 private let iAyuInvisibleSendDelay: Int32 = 12
 
-private func iAyuApplyInvisibleSend(peerId: PeerId, messages: [EnqueueMessage]) -> [EnqueueMessage] {
+// Whether invisible send will divert outgoing messages for this peer. The UI needs to
+// know as well: a diverted message never lands in the normal history, so anything that
+// waits for it to appear there — the send animation, the attachment picker's dismissal —
+// has to be short-circuited the same way an explicitly scheduled send is.
+public func iAyuInvisibleSendApplies(peerId: PeerId) -> Bool {
     guard SGSimpleSettings.shared.iaGhostInvisibleSend else {
-        return messages
+        return false
     }
     // Secret chats are end-to-end and can't be server-scheduled.
-    guard peerId.namespace != Namespaces.Peer.SecretChat else {
+    return peerId.namespace != Namespaces.Peer.SecretChat
+}
+
+private func iAyuApplyInvisibleSend(peerId: PeerId, messages: [EnqueueMessage]) -> [EnqueueMessage] {
+    guard iAyuInvisibleSendApplies(peerId: peerId) else {
         return messages
     }
     let scheduleTime = Int32(Date().timeIntervalSince1970) + iAyuInvisibleSendDelay
