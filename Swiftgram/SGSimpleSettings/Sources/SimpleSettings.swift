@@ -105,6 +105,7 @@ public class SGSimpleSettings {
         case iaDeletedBadge
         case iaEditedBadge
         case iaEditHistoryShowDates
+        case iaMediaMaxDownloadMB
         case iaTintDeleted
         case iaTintColorRGB
         case iaGhostHideReadReceipts
@@ -277,6 +278,7 @@ public class SGSimpleSettings {
         Keys.iaDeletedBadge.rawValue: "🗑 deleted",
         Keys.iaEditedBadge.rawValue: "✏️ edited",
         Keys.iaEditHistoryShowDates.rawValue: true,
+        Keys.iaMediaMaxDownloadMB.rawValue: 64,
         Keys.iaTintDeleted.rawValue: true,
         Keys.iaTintColorRGB.rawValue: 0xff3b30,
         Keys.iaGhostHideReadReceipts.rawValue: false,
@@ -404,6 +406,12 @@ public class SGSimpleSettings {
 
     @UserDefault(key: Keys.iaEditHistoryShowDates.rawValue)
     public var iaEditHistoryShowDates: Bool
+
+    // IAyuGram: largest preserved media, in MB, this device will download on its own.
+    // The server keeps the bytes regardless, so raising this recovers skipped media on
+    // the next gap-sync. 0 means no limit.
+    @UserDefault(key: Keys.iaMediaMaxDownloadMB.rawValue)
+    public var iaMediaMaxDownloadMB: Int32
 
     // IAyuGram: tint deleted-message bubbles (a subtle red overlay following the
     // bubble shape). Toggle + colour in IAyuGram → Appearance.
