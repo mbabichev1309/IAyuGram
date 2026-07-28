@@ -336,7 +336,17 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         precondition(!testIsLaunched)
         testIsLaunched = true
-        
+
+        // A cold launch from the Ghost mode quick action has to be handled HERE, not in
+        // performActionFor: that runs once the UI is up, by which point presence can
+        // already have reported the account online — the very thing the shortcut exists
+        // to avoid. Setting the flags is just a UserDefaults write, and every ghost gate
+        // reads them at the moment it acts, so doing it this early is enough.
+        if let shortcutItem = launchOptions?[.shortcutItem] as? UIApplicationShortcutItem,
+           ApplicationShortcutItemType(rawValue: shortcutItem.type) == .iAyuGhostMode {
+            iAyuForceGhostModeOn()
+        }
+
         let _ = voipTokenPromise.get().start(next: { token in
             self.voipDeviceToken.set(.single(token))
         })
@@ -2783,6 +2793,13 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         |> take(1)
         |> deliverOnMainQueue).start(next: { sharedContext in
             let type = ApplicationShortcutItemType(rawValue: shortcutItem.type)
+            if type == .iAyuGhostMode {
+                // Applied outside `proceed()` on purpose: that waits for the app lock to
+                // clear and for an authorized context, and every second before the flags
+                // land is a second in which presence can go online. Idempotent, so the
+                // cold-launch path above doing it too is harmless.
+                iAyuForceGhostModeOn()
+            }
             let immediately = type == .account
             let proceed: () -> Void = {
                 let _ = (self.context.get()
@@ -2803,6 +2820,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                                     context.switchAccount()
                                 case .appIcon:
                                     context.openAppIcon()
+                                case .iAyuGhostMode:
+                                    break // already applied above; nothing to open
                             }
                         }
                     }
