@@ -880,13 +880,28 @@ extension ChatControllerImpl {
             // the input won't fire. Clear the input via a short fallback so it doesn't
             // linger and you don't accidentally resend. Guarded to run at most once
             // (the view transition, if it does fire, nils the action out first).
-            if SGSimpleSettings.shared.iaGhostInvisibleSend {
+            //
+            // Gated on the same predicate the enqueue path uses, not on the raw setting:
+            // for a peer invisible send does NOT divert (a secret chat), the message does
+            // land here and the real transition should own both the input and the
+            // animation.
+            if let peerId = self.chatLocation.peerId, iAyuInvisibleSendApplies(peerId: peerId) {
                 Queue.mainQueue().after(0.35, { [weak self] in
                     guard let self = self, let action = self.layoutActionOnViewTransitionAction else {
                         return
                     }
                     self.layoutActionOnViewTransitionAction = nil
                     action()
+
+                    // Drop the transition hook too, not just the input-clearing action.
+                    // ChatHistoryListNode consumes layoutActionOnViewTransition only once a
+                    // transition carries the correlated message; a diverted message never
+                    // arrives in this history, so the hook stays installed — and when the
+                    // send path passes no correlation id it matches the NEXT transition
+                    // whatever that is, replaying the send's animated scrollToItem and its
+                    // updateSizeAndInsets on an unrelated history rebuild. That is a jump of
+                    // its own, and the prime suspect for the unread-separator lurch.
+                    self.chatDisplayNode.historyNode.layoutActionOnViewTransition = nil
                 })
             }
 
