@@ -39,6 +39,9 @@ func chatHistoryEntriesForView(
     location: ChatLocation,
     subject: ChatControllerSubject?,
     view: MessageHistoryView,
+    // IAyuGram: where to put the "unread messages" separator, when the caller wants it
+    // held still rather than recomputed. nil keeps the stock behaviour.
+    maxReadIndexOverride: MessageIndex?,
     includeUnreadEntry: Bool,
     includeEmptyEntry: Bool,
     includeChatInfoEntry: Bool,
@@ -433,7 +436,7 @@ func chatHistoryEntriesForView(
         }
     }
         
-    if let maxReadIndex = view.maxReadIndex, includeUnreadEntry {
+    if let maxReadIndex = maxReadIndexOverride ?? view.maxReadIndex, includeUnreadEntry {
         var i = 0
         let unreadEntry: ChatHistoryEntry = .UnreadEntry(maxReadIndex, presentationData)
         for entry in entries {

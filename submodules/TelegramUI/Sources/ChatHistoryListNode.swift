@@ -1592,6 +1592,9 @@ public final class ChatHistoryListNodeImpl: ListViewImpl, ChatHistoryNode, ChatH
         |> distinctUntilChanged
         
         let chatHistoryEntriesForViewState = Atomic<ChatHistoryEntriesForViewState>(value: ChatHistoryEntriesForViewState())
+        // IAyuGram: the unread separator's position, held still for as long as this chat's
+        // history stays on screen. See where it is applied below.
+        let pinnedMaxReadIndex = Atomic<MessageIndex?>(value: nil)
         
         let animatedEmojiStickers: Signal<[String: [StickerPackItem]], NoError> = context.animatedEmojiStickers
         let additionalAnimatedEmojiStickers = context.additionalAnimatedEmojiStickers
@@ -2133,12 +2136,33 @@ public final class ChatHistoryListNodeImpl: ListViewImpl, ChatHistoryNode, ChatH
                 }
                                 
                 let previousChatHistoryEntriesForViewState = chatHistoryEntriesForViewState.with({ $0 })
+
+                // IAyuGram: pin where the "unread messages" separator sits.
+                //
+                // view.maxReadIndex is recomputed on every history update, and Postbox
+                // derives it as "the last READ incoming message, then advanced forward over
+                // any messages after it that are not incoming" (MessageHistoryView.swift).
+                // Sending puts an outgoing message right after that boundary, so the
+                // separator slides down to the message you just sent — while it stays on
+                // screen because it is drawn from the unread COUNT, which is still non-zero
+                // (and with ghost mode the server never confirms the read at all, so it
+                // stays non-zero indefinitely). Incoming messages break that loop, which is
+                // why the jump only ever happens on send.
+                //
+                // Keeping the first index we saw leaves the separator where the user
+                // actually stopped reading. It can still appear or vanish — nil is passed
+                // straight through — it just can't crawl.
+                let effectiveMaxReadIndex: MessageIndex? = view.maxReadIndex.flatMap { current in
+                    pinnedMaxReadIndex.modify { $0 ?? current }
+                }
+
                 let (filteredEntries, updatedChatHistoryEntriesForViewState) = chatHistoryEntriesForView(
                     currentState: previousChatHistoryEntriesForViewState,
                     context: context,
                     location: chatLocation,
                     subject: subject,
                     view: view,
+                    maxReadIndexOverride: effectiveMaxReadIndex,
                     includeUnreadEntry: mode == .bubbles,
                     includeEmptyEntry: mode == .bubbles && tag == nil,
                     includeChatInfoEntry: mode == .bubbles,
