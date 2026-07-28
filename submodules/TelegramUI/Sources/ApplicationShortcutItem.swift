@@ -63,7 +63,9 @@ func applicationShortcutItems(strings: PresentationStrings, otherAccountName: St
     // useful one: "Change app icon" (also reachable from Appearance), or, when a second
     // account exists, Saved Messages — switching account is the point of that menu.
     let ghost = ApplicationShortcutItem(
-        type: .iAyuGhostMode, title: "Ghost mode", subtitle: "Enter with all signals hidden"
+        type: .iAyuGhostMode,
+        title: IAyuStrings.text(.shortcutGhostTitle),
+        subtitle: IAyuStrings.text(.shortcutGhostSubtitle)
     )
     if let otherAccountName = otherAccountName {
         return [

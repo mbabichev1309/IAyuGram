@@ -88,7 +88,9 @@ public func iAyuEditHistoryController(context: AccountContext, versions: [IAyuEd
 
         var entries: [IAyuEditHistoryEntry] = []
         if !versions.isEmpty {
-            let header = editedBadge.isEmpty ? "PREVIOUS VERSIONS" : "\(editedBadge) — previous versions"
+            let header = editedBadge.isEmpty
+                ? IAyuStrings.text(.editHistoryPreviousHeader)
+                : IAyuStrings.text(.editHistoryPreviousHeaderWithBadge, ["badge": editedBadge])
             entries.append(.previousHeader(header))
             for (index, version) in versions.enumerated() {
                 var text = version.text
@@ -99,10 +101,10 @@ public func iAyuEditHistoryController(context: AccountContext, versions: [IAyuEd
                 entries.append(.previous(index, text))
             }
         }
-        entries.append(.currentHeader("CURRENT"))
+        entries.append(.currentHeader(IAyuStrings.text(.editHistoryCurrentHeader)))
         entries.append(.current(currentText))
 
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Edit history"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(IAyuStrings.text(.editHistoryTitle)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
         return (controllerState, (listState, IAyuEditHistoryEmptyArguments()))
     }

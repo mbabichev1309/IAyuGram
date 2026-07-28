@@ -90,13 +90,13 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
         case let .connectionHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .serverURL(title, value):
-            return ItemListSingleLineInputItem(presentationData: presentationData, title: NSAttributedString(string: title), text: value, placeholder: "https://…ts.net", type: .regular(capitalization: false, autocorrection: false), sectionId: self.section, textUpdated: { text in
+            return iAyuTextFieldItem(presentationData: presentationData, title: title, value: value, placeholder: "https://…ts.net", sectionId: self.section, textUpdated: { text in
                 arguments.updateServerURL(text)
-            }, action: {})
+            })
         case let .token(title, value):
-            return ItemListSingleLineInputItem(presentationData: presentationData, title: NSAttributedString(string: title), text: value, placeholder: "client token", type: .regular(capitalization: false, autocorrection: false), sectionId: self.section, textUpdated: { text in
+            return iAyuTextFieldItem(presentationData: presentationData, title: title, value: value, placeholder: "client token", sectionId: self.section, textUpdated: { text in
                 arguments.updateToken(text)
-            }, action: {})
+            })
         case let .connect(title):
             return ItemListActionItem(presentationData: presentationData, title: title, kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
                 arguments.connectLive()
@@ -119,7 +119,7 @@ private struct IAyuConnectionState: Equatable {
 }
 
 private func iAyuConnectionEventDescription(_ event: IAyuMessageEvent) -> String {
-    let content = event.text ?? "<no content>"
+    let content = event.text ?? IAyuStrings.text(.connectionEventNoContent)
     return "\(event.kind) #\(event.messageId): \(content)"
 }
 
@@ -157,7 +157,7 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
         updateState { state in
             var state = state
             state.events = []
-            state.status = "Live: connecting…"
+            state.status = IAyuStrings.text(.connectionStatusConnecting)
             return state
         }
         sessionBox.session = IAyuLiveSession(serverURL: current.serverURL, token: current.token, onEvent: { event in
@@ -180,7 +180,7 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
         if sessionBox.session == nil {
             updateState { state in
                 var state = state
-                state.status = "Live: invalid URL"
+                state.status = IAyuStrings.text(.connectionStatusInvalidURL)
                 return state
             }
         }
@@ -189,21 +189,21 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
     let signal = combineLatest(statePromise.get(), context.sharedContext.presentationData)
     |> map { state, presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
         var entries: [IAyuConnectionEntry] = []
-        entries.append(.connectionHeader("COMPANION SERVER"))
-        entries.append(.serverURL("URL", state.serverURL))
-        entries.append(.token("Token", state.token))
-        entries.append(.connect("Save & Connect (live)"))
+        entries.append(.connectionHeader(IAyuStrings.text(.connectionServerHeader)))
+        entries.append(.serverURL(IAyuStrings.text(.connectionURL), state.serverURL))
+        entries.append(.token(IAyuStrings.text(.connectionToken), state.token))
+        entries.append(.connect(IAyuStrings.text(.connectionConnect)))
         if !state.status.isEmpty {
             entries.append(.status(state.status))
         }
         if !state.events.isEmpty {
-            entries.append(.liveHeader("LIVE EVENTS"))
+            entries.append(.liveHeader(IAyuStrings.text(.connectionLiveHeader)))
             for (index, event) in state.events.enumerated() {
                 entries.append(.event(index, iAyuConnectionEventDescription(event)))
             }
         }
 
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Connection keys"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(IAyuStrings.text(.connectionTitle)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
         return (controllerState, (listState, arguments))
     }

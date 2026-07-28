@@ -1500,7 +1500,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
         let iaEditVersions = IAyuEditHistoryStore.shared.versions(peerId: message.id.peerId.toInt64(), messageId: message.id.id)
         if !iaEditVersions.isEmpty {
             let currentText = message.text
-            sgActions.append(.action(ContextMenuActionItem(text: "Edit history", icon: { theme in
+            sgActions.append(.action(ContextMenuActionItem(text: IAyuStrings.text(.editHistoryMenuItem), icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Message"), color: theme.actionSheet.primaryTextColor)
             }, action: { _, f in
                 controllerInteraction.navigationController()?.pushViewController(iAyuEditHistoryController(context: context, versions: iaEditVersions, currentText: currentText))

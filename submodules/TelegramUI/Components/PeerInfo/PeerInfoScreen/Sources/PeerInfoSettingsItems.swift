@@ -226,7 +226,7 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
         && ghostSettings.iaGhostHideTyping
         && ghostSettings.iaGhostHideConsumed
         && ghostSettings.iaGhostInvisibleSend
-    items[.iAyuGram]!.append(PeerInfoScreenSwitchItem(id: 0, text: "Ghost mode", value: ghostModeEnabled, icon: PresentationResourcesSettings.security, isLocked: false, toggled: { value in
+    items[.iAyuGram]!.append(PeerInfoScreenSwitchItem(id: 0, text: IAyuStrings.text(.settingsGhostSwitch), value: ghostModeEnabled, icon: PresentationResourcesSettings.security, isLocked: false, toggled: { value in
         let settings = SGSimpleSettings.shared
         settings.iaGhostHideReadReceipts = value
         settings.iaGhostStayOffline = value
@@ -234,7 +234,7 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
         settings.iaGhostHideConsumed = value
         settings.iaGhostInvisibleSend = value
     }))
-    items[.iAyuGram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: .none, text: "IAyuGram", icon: PresentationResourcesSettings.swiftgram, action: {
+    items[.iAyuGram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: .none, text: IAyuStrings.text(.settingsRow), icon: PresentationResourcesSettings.swiftgram, action: {
         interaction.openSettings(.iAyuGram)
     }))
 
