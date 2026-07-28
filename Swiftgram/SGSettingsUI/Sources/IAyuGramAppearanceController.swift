@@ -129,13 +129,13 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
         case let .badgesHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .deletedBadge(title, value):
-            return ItemListSingleLineInputItem(presentationData: presentationData, title: NSAttributedString(string: title), text: value, placeholder: "🗑 deleted", type: .regular(capitalization: false, autocorrection: false), sectionId: self.section, textUpdated: { text in
+            return iAyuTextFieldItem(presentationData: presentationData, title: title, value: value, placeholder: "🗑 deleted", sectionId: self.section, textUpdated: { text in
                 arguments.updateDeletedBadge(text)
-            }, action: {})
+            })
         case let .editedBadge(title, value):
-            return ItemListSingleLineInputItem(presentationData: presentationData, title: NSAttributedString(string: title), text: value, placeholder: "✏️ edited", type: .regular(capitalization: false, autocorrection: false), sectionId: self.section, textUpdated: { text in
+            return iAyuTextFieldItem(presentationData: presentationData, title: title, value: value, placeholder: "✏️ edited", sectionId: self.section, textUpdated: { text in
                 arguments.updateEditedBadge(text)
-            }, action: {})
+            })
         case let .badgesInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .tintDeleted(title, value):
@@ -233,16 +233,16 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
     let signal = combineLatest(statePromise.get(), context.sharedContext.presentationData)
     |> map { state, presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
         var entries: [IAyuAppearanceEntry] = []
-        entries.append(.badgesHeader("MESSAGE BADGES"))
-        entries.append(.deletedBadge("Deleted", state.deletedBadge))
-        entries.append(.editedBadge("Edited", state.editedBadge))
-        entries.append(.badgesInfo("Shown on preserved messages. Leave empty to hide the label."))
-        entries.append(.tintDeleted("Tint deleted messages", state.tintDeleted))
-        entries.append(.tintColor("Tint color", state.tintColorRGB))
-        entries.append(.editHistoryHeader("EDIT HISTORY"))
-        entries.append(.showDates("Show version dates", state.showDates))
+        entries.append(.badgesHeader(IAyuStrings.text(.appearanceBadgesHeader)))
+        entries.append(.deletedBadge(IAyuStrings.text(.appearanceDeletedBadge), state.deletedBadge))
+        entries.append(.editedBadge(IAyuStrings.text(.appearanceEditedBadge), state.editedBadge))
+        entries.append(.badgesInfo(IAyuStrings.text(.appearanceBadgesInfo)))
+        entries.append(.tintDeleted(IAyuStrings.text(.appearanceTintDeleted), state.tintDeleted))
+        entries.append(.tintColor(IAyuStrings.text(.appearanceTintColor), state.tintColorRGB))
+        entries.append(.editHistoryHeader(IAyuStrings.text(.appearanceEditHistoryHeader)))
+        entries.append(.showDates(IAyuStrings.text(.appearanceShowDates), state.showDates))
 
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Appearance"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(IAyuStrings.text(.appearanceTitle)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
         return (controllerState, (listState, arguments))
     }

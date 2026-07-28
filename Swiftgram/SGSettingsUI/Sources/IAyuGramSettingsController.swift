@@ -80,7 +80,7 @@ final class IAyuLiveSession {
         self.onClosed = onClosed
         self.task = URLSession.shared.webSocketTask(with: url)
         self.task.resume()
-        onStatus("Live: connecting…")
+        onStatus(IAyuStrings.text(.connectionStatusConnecting))
         self.receiveLoop()
         // /live sends nothing until an event occurs, so confirm the connection
         // (handshake + token auth) with a ping instead of waiting for a message.
@@ -88,10 +88,10 @@ final class IAyuLiveSession {
             Queue.mainQueue().async {
                 guard let self = self, self.active else { return }
                 if let error = error {
-                    self.onStatus("Live: failed — \(error.localizedDescription)")
+                    self.onStatus(IAyuStrings.text(.connectionStatusFailed, ["error": error.localizedDescription]))
                     self.notifyClosed()
                 } else {
-                    self.onStatus("Live: connected ✅ (listening for events)")
+                    self.onStatus(IAyuStrings.text(.connectionStatusConnected))
                 }
             }
         }
@@ -151,7 +151,7 @@ final class IAyuLiveSession {
                 self.receiveLoop()
             case let .failure(error):
                 Queue.mainQueue().async {
-                    self.onStatus("Live: disconnected — \(error.localizedDescription)")
+                    self.onStatus(IAyuStrings.text(.connectionStatusDisconnected, ["error": error.localizedDescription]))
                     self.notifyClosed()
                 }
             }
@@ -251,16 +251,16 @@ private func iAyuSkippedMediaNote(event: IAyuMessageEvent, size: Int) -> String 
     let megabytes = max(1, size / (1024 * 1024))
     let label: String
     switch event.mediaKind {
-    case "video": label = "Video"
-    case "gif": label = "GIF"
-    case "audio": label = "Audio"
-    case "document": label = event.mediaFileName ?? "File"
-    case "photo": label = "Photo"
-    case "voice": label = "Voice message"
-    case "round": label = "Video message"
-    default: label = "Media"
+    case "video": label = IAyuStrings.text(.mediaVideo)
+    case "gif": label = IAyuStrings.text(.mediaGif)
+    case "audio": label = IAyuStrings.text(.mediaAudio)
+    case "document": label = event.mediaFileName ?? IAyuStrings.text(.mediaFile)
+    case "photo": label = IAyuStrings.text(.mediaPhoto)
+    case "voice": label = IAyuStrings.text(.mediaVoice)
+    case "round": label = IAyuStrings.text(.mediaRound)
+    default: label = IAyuStrings.text(.mediaGeneric)
     }
-    return "[\(label), \(megabytes) MB — not downloaded]"
+    return IAyuStrings.text(.mediaSkippedNote, ["kind": label, "size": "\(megabytes)"])
 }
 
 private func iAyuInsertDeleted(context: AccountContext, event: IAyuMessageEvent, media: [Media], appendedNote: String? = nil) {
@@ -499,15 +499,17 @@ private final class IAyuHubArguments {
     let toggleHideConsumed: (Bool) -> Void
     let toggleInvisibleSend: (Bool) -> Void
     let openAppearance: () -> Void
+    let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, toggleHideConsumed: @escaping (Bool) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, toggleHideConsumed: @escaping (Bool) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleHideReadReceipts = toggleHideReadReceipts
         self.toggleStayOffline = toggleStayOffline
         self.toggleHideTyping = toggleHideTyping
         self.toggleHideConsumed = toggleHideConsumed
         self.toggleInvisibleSend = toggleInvisibleSend
         self.openAppearance = openAppearance
+        self.openLocalization = openLocalization
         self.openConnection = openConnection
     }
 }
@@ -526,13 +528,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case ghostInvisibleSend(String, Bool)
     case ghostInfo(String)
     case appearance(String)
+    case localization(String)
     case connection(String)
 
     var section: ItemListSectionId {
         switch self {
         case .ghostHeader, .ghostHideReadReceipts, .ghostStayOffline, .ghostHideTyping, .ghostHideConsumed, .ghostInvisibleSend, .ghostInfo:
             return IAyuHubSection.ghost.rawValue
-        case .appearance, .connection:
+        case .appearance, .localization, .connection:
             return IAyuHubSection.screens.rawValue
         }
     }
@@ -547,7 +550,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .ghostInvisibleSend: return 5
         case .ghostInfo: return 6
         case .appearance: return 7
-        case .connection: return 8
+        case .localization: return 8
+        case .connection: return 9
         }
     }
 
@@ -572,6 +576,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let (.ghostInfo(a), .ghostInfo(b)):
             return a == b
         case let (.appearance(a), .appearance(b)):
+            return a == b
+        case let (.localization(a), .localization(b)):
             return a == b
         case let (.connection(a), .connection(b)):
             return a == b
@@ -610,6 +616,10 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let .appearance(title):
             return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "", sectionId: self.section, style: .blocks, action: {
                 arguments.openAppearance()
+            })
+        case let .localization(title):
+            return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "", sectionId: self.section, style: .blocks, action: {
+                arguments.openLocalization()
             })
         case let .connection(title):
             return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "", sectionId: self.section, style: .blocks, action: {
@@ -680,6 +690,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         }
     }, openAppearance: {
         pushControllerImpl?(iAyuGramAppearanceController(context: context))
+    }, openLocalization: {
+        pushControllerImpl?(iAyuGramLocalizationController(context: context))
     }, openConnection: {
         pushControllerImpl?(iAyuGramConnectionController(context: context))
     })
@@ -687,17 +699,18 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
     let signal = combineLatest(statePromise.get(), context.sharedContext.presentationData)
     |> map { state, presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
         var entries: [IAyuHubEntry] = []
-        entries.append(.ghostHeader("GHOST MODE"))
-        entries.append(.ghostHideReadReceipts("Don't send read receipts", state.hideReadReceipts))
-        entries.append(.ghostStayOffline("Stay offline", state.stayOffline))
-        entries.append(.ghostHideTyping("Don't send typing", state.hideTyping))
-        entries.append(.ghostHideConsumed("Don't mark voice/video as listened", state.hideConsumed))
-        entries.append(.ghostInvisibleSend("Invisible send", state.invisibleSend))
-        entries.append(.ghostInfo("Others won't see your read receipts, online status, typing, or when you play their voice/video messages. Invisible send delays your messages ~12s (sent as scheduled) so sending doesn't show you online — expect the ~12s delay."))
-        entries.append(.appearance("Appearance"))
-        entries.append(.connection("Connection keys"))
+        entries.append(.ghostHeader(IAyuStrings.text(.hubGhostHeader)))
+        entries.append(.ghostHideReadReceipts(IAyuStrings.text(.hubGhostHideReadReceipts), state.hideReadReceipts))
+        entries.append(.ghostStayOffline(IAyuStrings.text(.hubGhostStayOffline), state.stayOffline))
+        entries.append(.ghostHideTyping(IAyuStrings.text(.hubGhostHideTyping), state.hideTyping))
+        entries.append(.ghostHideConsumed(IAyuStrings.text(.hubGhostHideConsumed), state.hideConsumed))
+        entries.append(.ghostInvisibleSend(IAyuStrings.text(.hubGhostInvisibleSend), state.invisibleSend))
+        entries.append(.ghostInfo(IAyuStrings.text(.hubGhostInfo)))
+        entries.append(.appearance(IAyuStrings.text(.hubAppearance)))
+        entries.append(.localization(IAyuStrings.text(.hubLocalization)))
+        entries.append(.connection(IAyuStrings.text(.hubConnection)))
 
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("IAyuGram"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(IAyuStrings.text(.hubTitle)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
         return (controllerState, (listState, arguments))
     }
