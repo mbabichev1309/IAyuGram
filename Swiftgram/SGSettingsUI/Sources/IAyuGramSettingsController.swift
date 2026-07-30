@@ -498,16 +498,18 @@ private final class IAyuHubArguments {
     let toggleHideTyping: (Bool) -> Void
     let toggleHideConsumed: (Bool) -> Void
     let toggleInvisibleSend: (Bool) -> Void
+    let pickMediaCap: () -> Void
     let openAppearance: () -> Void
     let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, toggleHideConsumed: @escaping (Bool) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, toggleHideConsumed: @escaping (Bool) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleHideReadReceipts = toggleHideReadReceipts
         self.toggleStayOffline = toggleStayOffline
         self.toggleHideTyping = toggleHideTyping
         self.toggleHideConsumed = toggleHideConsumed
         self.toggleInvisibleSend = toggleInvisibleSend
+        self.pickMediaCap = pickMediaCap
         self.openAppearance = openAppearance
         self.openLocalization = openLocalization
         self.openConnection = openConnection
@@ -516,7 +518,19 @@ private final class IAyuHubArguments {
 
 private enum IAyuHubSection: Int32 {
     case ghost
+    case media
     case screens
+}
+
+// Offered download caps, in MB; 0 means no limit. Kept in one place so the row's label and
+// the picker can't disagree about what the stored value means.
+private let iAyuMediaCapOptions: [Int32] = [16, 32, 64, 128, 256, 512, 0]
+
+private func iAyuMediaCapLabel(_ mb: Int32) -> String {
+    if mb <= 0 {
+        return IAyuStrings.text(.hubMediaCapUnlimited)
+    }
+    return "\(mb) MB"
 }
 
 private enum IAyuHubEntry: ItemListNodeEntry {
@@ -527,6 +541,9 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case ghostHideConsumed(String, Bool)
     case ghostInvisibleSend(String, Bool)
     case ghostInfo(String)
+    case mediaHeader(String)
+    case mediaCap(String, Int32)
+    case mediaInfo(String)
     case appearance(String)
     case localization(String)
     case connection(String)
@@ -535,6 +552,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         switch self {
         case .ghostHeader, .ghostHideReadReceipts, .ghostStayOffline, .ghostHideTyping, .ghostHideConsumed, .ghostInvisibleSend, .ghostInfo:
             return IAyuHubSection.ghost.rawValue
+        case .mediaHeader, .mediaCap, .mediaInfo:
+            return IAyuHubSection.media.rawValue
         case .appearance, .localization, .connection:
             return IAyuHubSection.screens.rawValue
         }
@@ -549,9 +568,12 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .ghostHideConsumed: return 4
         case .ghostInvisibleSend: return 5
         case .ghostInfo: return 6
-        case .appearance: return 7
-        case .localization: return 8
-        case .connection: return 9
+        case .mediaHeader: return 7
+        case .mediaCap: return 8
+        case .mediaInfo: return 9
+        case .appearance: return 10
+        case .localization: return 11
+        case .connection: return 12
         }
     }
 
@@ -574,6 +596,12 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let (.ghostInvisibleSend(a1, a2), .ghostInvisibleSend(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.ghostInfo(a), .ghostInfo(b)):
+            return a == b
+        case let (.mediaHeader(a), .mediaHeader(b)):
+            return a == b
+        case let (.mediaCap(a1, a2), .mediaCap(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.mediaInfo(a), .mediaInfo(b)):
             return a == b
         case let (.appearance(a), .appearance(b)):
             return a == b
@@ -613,6 +641,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             })
         case let .ghostInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .mediaHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .mediaCap(title, mb):
+            return ItemListDisclosureItem(presentationData: presentationData, title: title, label: iAyuMediaCapLabel(mb), sectionId: self.section, style: .blocks, action: {
+                arguments.pickMediaCap()
+            })
+        case let .mediaInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .appearance(title):
             return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "", sectionId: self.section, style: .blocks, action: {
                 arguments.openAppearance()
@@ -635,6 +671,7 @@ private struct IAyuHubState: Equatable {
     var hideTyping: Bool
     var hideConsumed: Bool
     var invisibleSend: Bool
+    var mediaCapMB: Int32
 }
 
 public func iAyuGramSettingsController(context: AccountContext) -> ViewController {
@@ -643,7 +680,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         stayOffline: SGSimpleSettings.shared.iaGhostStayOffline,
         hideTyping: SGSimpleSettings.shared.iaGhostHideTyping,
         hideConsumed: SGSimpleSettings.shared.iaGhostHideConsumed,
-        invisibleSend: SGSimpleSettings.shared.iaGhostInvisibleSend
+        invisibleSend: SGSimpleSettings.shared.iaGhostInvisibleSend,
+        mediaCapMB: SGSimpleSettings.shared.iaMediaMaxDownloadMB
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -652,6 +690,7 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
     }
 
     var pushControllerImpl: ((ViewController) -> Void)?
+    var presentControllerImpl: ((ViewController) -> Void)?
 
     let arguments = IAyuHubArguments(toggleHideReadReceipts: { value in
         SGSimpleSettings.shared.iaGhostHideReadReceipts = value
@@ -688,6 +727,34 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             state.invisibleSend = value
             return state
         }
+    }, pickMediaCap: {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        var dismissImpl: (() -> Void)?
+        var items: [ActionSheetItem] = [ActionSheetTextItem(title: IAyuStrings.text(.hubMediaCap))]
+        for option in iAyuMediaCapOptions {
+            items.append(ActionSheetButtonItem(title: iAyuMediaCapLabel(option), action: {
+                dismissImpl?()
+                SGSimpleSettings.shared.iaMediaMaxDownloadMB = option
+                updateState { state in
+                    var state = state
+                    state.mediaCapMB = option
+                    return state
+                }
+            }))
+        }
+        let actionSheet = ActionSheetController(presentationData: presentationData)
+        dismissImpl = { [weak actionSheet] in
+            actionSheet?.dismissAnimated()
+        }
+        actionSheet.setItemGroups([
+            ActionSheetItemGroup(items: items),
+            ActionSheetItemGroup(items: [
+                ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: {
+                    dismissImpl?()
+                })
+            ])
+        ])
+        presentControllerImpl?(actionSheet)
     }, openAppearance: {
         pushControllerImpl?(iAyuGramAppearanceController(context: context))
     }, openLocalization: {
@@ -706,6 +773,9 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.ghostHideConsumed(IAyuStrings.text(.hubGhostHideConsumed), state.hideConsumed))
         entries.append(.ghostInvisibleSend(IAyuStrings.text(.hubGhostInvisibleSend), state.invisibleSend))
         entries.append(.ghostInfo(IAyuStrings.text(.hubGhostInfo)))
+        entries.append(.mediaHeader(IAyuStrings.text(.hubMediaHeader)))
+        entries.append(.mediaCap(IAyuStrings.text(.hubMediaCap), state.mediaCapMB))
+        entries.append(.mediaInfo(IAyuStrings.text(.hubMediaInfo)))
         entries.append(.appearance(IAyuStrings.text(.hubAppearance)))
         entries.append(.localization(IAyuStrings.text(.hubLocalization)))
         entries.append(.connection(IAyuStrings.text(.hubConnection)))
@@ -718,6 +788,9 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
     let controller = ItemListController(context: context, state: signal)
     pushControllerImpl = { [weak controller] c in
         (controller?.navigationController as? NavigationController)?.pushViewController(c)
+    }
+    presentControllerImpl = { [weak controller] c in
+        controller?.present(c, in: .window(.root))
     }
     return controller
 }

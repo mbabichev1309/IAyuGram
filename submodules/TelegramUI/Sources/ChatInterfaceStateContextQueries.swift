@@ -154,9 +154,18 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, pee
         
             let participants: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, ChatContextQueryError>
             if let peer {
+                // MARK: IAyuGram — start the member list at empty instead of waiting for the
+                // lookup. combineLatest can't emit until both sides have a value, so the panel
+                // used to stay hidden (the query resets it to .mentions([]) first) until the
+                // member search answered — even in a private chat, where it can only ever be
+                // empty. Now the inline bots show as soon as they're read, and members are
+                // added when they arrive.
+                let members: Signal<[EnginePeer], NoError> = Signal<[EnginePeer], NoError>.single([])
+                |> then(searchPeerMembers(context: context, peerId: peer.id, chatLocation: chatLocation, query: query, scope: .mention))
+
                 participants = combineLatest(
                     inlineBots,
-                    searchPeerMembers(context: context, peerId: peer.id, chatLocation: chatLocation, query: query, scope: .mention)
+                    members
                 )
                 |> map { inlineBots, peers -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
                     let filteredInlineBots = inlineBots.sorted(by: { $0.1 > $1.1 }).filter { peer, rating in

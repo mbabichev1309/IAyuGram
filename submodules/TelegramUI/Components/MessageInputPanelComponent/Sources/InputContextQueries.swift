@@ -165,7 +165,11 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, cha
         if let chatLocation, let peerId = chatLocation.peerId {
             let inlineBots: Signal<[(EnginePeer, Double)], NoError> = types.contains(.contextBots) ? context.engine.peers.recentlyUsedInlineBots() : .single([])
             let strings = context.sharedContext.currentPresentationData.with({ $0 }).strings
-            let participants = combineLatest(inlineBots, searchPeerMembers(context: context, peerId: peerId, chatLocation: chatLocation, query: query, scope: .mention))
+            // MARK: IAyuGram — as in ChatInterfaceStateContextQueries: don't make the panel wait
+            // on the member lookup before it can show the inline bots.
+            let members: Signal<[EnginePeer], NoError> = Signal<[EnginePeer], NoError>.single([])
+            |> then(searchPeerMembers(context: context, peerId: peerId, chatLocation: chatLocation, query: query, scope: .mention))
+            let participants = combineLatest(inlineBots, members)
             |> map { inlineBots, peers -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
                 let filteredInlineBots = inlineBots.sorted(by: { $0.1 > $1.1 }).filter { peer, rating in
                     // MARK: IAyuGram — same as in ChatInterfaceStateContextQueries: no popularity
