@@ -45,6 +45,7 @@ import PlainButtonComponent
 import BundleIconComponent
 import MarqueeComponent
 import EdgeEffect
+import SGSimpleSettings
 
 final class PeerInfoHeaderNavigationTransition {
     let sourceNavigationBar: NavigationBar
@@ -1264,7 +1265,14 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 let subtitleColor: UIColor
                 subtitleColor = .white
                 
-                subtitleStringText = presentationData.strings.Presence_online
+                // MARK: IAyuGram — upstream hardcodes "online" here: this subtitle is a
+                // constant, not the account's real status, so with ghost mode on it claims
+                // the opposite of what Telegram tells everyone else. Say what we actually do.
+                if SGSimpleSettings.shared.iaGhostStayOffline {
+                    subtitleStringText = IAyuStrings.text(.myProfileStatusGhost)
+                } else {
+                    subtitleStringText = presentationData.strings.Presence_online
+                }
                 subtitleAttributes = MultiScaleTextState.Attributes(font: Font.regular(17.0), color: subtitleColor)
                 smallSubtitleAttributes = MultiScaleTextState.Attributes(font: Font.regular(16.0), color: .white, shadowColor: titleShadowColor)
                 
