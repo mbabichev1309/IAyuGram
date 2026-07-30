@@ -1693,7 +1693,16 @@ public final class ChatMessageInteractiveFileNode: ASDisplayNode {
                 
                 let effectiveDuration = playerDuration > 0 ? playerDuration : Double(audioDuration ?? 0)
                 
-                let durationString = stringForDuration(Int32(effectiveDuration), position: playerPosition.flatMap { Int32($0) })
+                // MARK: IAyuGram — stock counts a playing voice message DOWN by passing the
+                // position to stringForDuration, which returns duration - position. Count up
+                // instead when asked, clamped to the duration so a position running slightly
+                // past the end (it is extrapolated from CACurrentMediaTime) can't overshoot.
+                let durationString: String
+                if SGSimpleSettings.shared.iaVoiceElapsedTime, let playerPosition {
+                    durationString = stringForDuration(Int32(max(0.0, min(effectiveDuration, playerPosition))))
+                } else {
+                    durationString = stringForDuration(Int32(effectiveDuration), position: playerPosition.flatMap { Int32($0) })
+                }
                 let durationFont = Font.regular(floor(presentationData.fontSize.baseDisplaySize * 11.0 / 17.0))
                 downloadingStrings = (durationString, durationString, durationFont)
                 

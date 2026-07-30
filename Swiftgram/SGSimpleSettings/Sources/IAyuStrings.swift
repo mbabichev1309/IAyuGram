@@ -39,6 +39,9 @@ public enum IAyuStringKey: String, CaseIterable {
     case appearanceTintColor
     case appearanceEditHistoryHeader
     case appearanceShowDates
+    case appearancePlaybackHeader
+    case appearanceVoiceElapsed
+    case appearancePlaybackInfo
 
     // Localization (this screen itself)
     case localizationTitle
@@ -115,6 +118,9 @@ public final class IAyuStrings {
         .appearanceTintColor: "Tint color",
         .appearanceEditHistoryHeader: "EDIT HISTORY",
         .appearanceShowDates: "Show version dates",
+        .appearancePlaybackHeader: "PLAYBACK",
+        .appearanceVoiceElapsed: "Count voice messages up",
+        .appearancePlaybackInfo: "Show how much of a voice message has played instead of how much is left. Video messages already count up.",
 
         .localizationTitle: "Localization",
         .localizationInfo: "Every text IAyuGram adds to the app. Leave a field empty to fall back to the default shown in grey. {token} placeholders are filled in at runtime — keep them.",
@@ -163,7 +169,8 @@ public final class IAyuStrings {
                  .hubGhostInfo, .hubAppearance, .hubLocalization, .hubConnection]),
         ("APPEARANCE", [.appearanceTitle, .appearanceBadgesHeader, .appearanceDeletedBadge,
                         .appearanceEditedBadge, .appearanceBadgesInfo, .appearanceTintDeleted,
-                        .appearanceTintColor, .appearanceEditHistoryHeader, .appearanceShowDates]),
+                        .appearanceTintColor, .appearanceEditHistoryHeader, .appearanceShowDates,
+                        .appearancePlaybackHeader, .appearanceVoiceElapsed, .appearancePlaybackInfo]),
         ("LOCALIZATION", [.localizationTitle, .localizationInfo, .localizationReset]),
         ("CONNECTION", [.connectionTitle, .connectionServerHeader, .connectionURL, .connectionToken,
                         .connectionConnect, .connectionLiveHeader, .connectionStatusConnecting,
@@ -203,6 +210,9 @@ public final class IAyuStrings {
         case .appearanceTintColor: return "Tint colour"
         case .appearanceEditHistoryHeader: return "History header"
         case .appearanceShowDates: return "Dates switch"
+        case .appearancePlaybackHeader: return "Playback header"
+        case .appearanceVoiceElapsed: return "Voice count-up switch"
+        case .appearancePlaybackInfo: return "Playback footnote"
         case .localizationTitle: return "Title"
         case .localizationInfo: return "Footnote"
         case .localizationReset: return "Reset action"
