@@ -58,6 +58,7 @@ import RecaptchaEnterprise
 import NavigationBarImpl
 import ContextUI
 import ContextControllerImpl
+import ProxyServerPreviewScreen
 
 #if canImport(AppCenter)
 import AppCenter
@@ -435,6 +436,11 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         self.window = window
         self.nativeWindow = window
+        // MARK: Swiftgram
+        if sgHardReset(present: self.mainWindow?.presentNative, beforePresent: { self.window?.makeKeyAndVisible() }) {
+            return true
+        }
+        //
         
         hostView.containerView.layer.addSublayer(MetalEngine.shared.rootLayer)
         
@@ -694,13 +700,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             rootPath = rootPathForBasePath(appGroupUrl.path)
         }
         if !isUITest {
-            // MARK: Swiftgram
-            if UserDefaults.standard.bool(forKey: "sg_db_hard_reset") {
-                self.window?.makeKeyAndVisible()
-                sgHardReset(dataPath: rootPath, present: self.mainWindow?.presentNative)
-                return true
-            }
-            //
         performAppGroupUpgrades(appGroupPath: appGroupUrl.path, rootPath: rootPath)
         }
         
@@ -1754,7 +1753,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 }))
             }
         })
-        
+                
         return true
     }
     
@@ -2596,7 +2595,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 if let proxyData = parseProxyUrl(sharedContext: sharedContext, url: url) {
                     authContext.rootController.view.endEditing(true)
                     let presentationData = authContext.sharedContext.currentPresentationData.with { $0 }
-                    let controller = ProxyServerActionSheetController(sharedContext: authContext.sharedContext, presentationData: presentationData, accountManager: authContext.sharedContext.accountManager, postbox: authContext.account.postbox, network: authContext.account.network, server: proxyData, updatedPresentationData: nil)
+                    let controller = ProxyServerPreviewScreen(sharedContext: authContext.sharedContext, network: authContext.account.network, updatedPresentationData: (presentationData, authContext.sharedContext.presentationData), server: proxyData)
                     authContext.rootController.currentWindow?.present(controller, on: PresentationSurfaceLevel.root, blockInteraction: false, completion: {})
                 } else if let secureIdData = parseSecureIdUrl(url) {
                     let presentationData = authContext.sharedContext.currentPresentationData.with { $0 }

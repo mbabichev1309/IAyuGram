@@ -6,7 +6,6 @@ import ComponentFlow
 import PagerComponent
 import TelegramPresentationData
 import TelegramCore
-import Postbox
 import BundleIconComponent
 import AudioToolbox
 import SwiftSignalKit
@@ -1009,6 +1008,14 @@ public final class EntityKeyboardComponent: Component {
             
             pagerContentView.scrollToItemGroup(id: groupId, subgroupId: subgroupId, animated: animated)
             pagerView.collapseTopPanel()
+        }
+        
+        public func revealHiddenPanels() {
+            guard let pagerView = self.pagerView.findTaggedView(tag: PagerComponentViewTag()) as? PagerComponent<EntityKeyboardChildEnvironment, EntityKeyboardTopContainerPanelEnvironment>.View else {
+                return
+            }
+            
+            pagerView.revealHiddenPanels()
         }
         
         private func reorderPacks(category: ReorderCategory, items: [EntityKeyboardTopPanelComponent.Item]) {

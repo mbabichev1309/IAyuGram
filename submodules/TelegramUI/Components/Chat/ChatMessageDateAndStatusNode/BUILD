@@ -15,7 +15,6 @@ swift_library(
     ],
     deps = sgdeps + [
         "//submodules/AsyncDisplayKit",
-        "//submodules/Postbox",
         "//submodules/TelegramCore",
         "//submodules/Display",
         "//submodules/SSignalKit/SwiftSignalKit",

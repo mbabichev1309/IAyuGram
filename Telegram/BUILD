@@ -41,6 +41,10 @@ load(
 
 load("@build_bazel_rules_apple//apple:apple.bzl", "local_provisioning_profile")
 
+load("//Telegram:prebuilt_watchos.bzl",
+    "apple_prebuilt_watchos_application",
+)
+
 load("//build-system/bazel-utils:plist_fragment.bzl",
     "plist_fragment",
 )
@@ -100,6 +104,19 @@ config_setting(
     name = "disableProvisioningProfilesSetting",
     flag_values = {
         ":disableProvisioningProfiles": "True",
+    },
+)
+
+bool_flag(
+    name = "embedWatchApp",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "embedWatchAppSetting",
+    flag_values = {
+        ":embedWatchApp": "True",
     },
 )
 
@@ -269,14 +286,6 @@ filegroup(
     ],
     # MARK: Swiftgram
     visibility = ["//visibility:public",],
-)
-
-# MARK: Swiftgram
-filegroup(
-    name = "WatchAppStringResources",
-    srcs = glob([
-        "Telegram-iOS/*.lproj/Localizable.strings",
-    ], exclude = ["Telegram-iOS/*.lproj/**/.*"]) + ["//Swiftgram/SGStrings:SGLocalizableStrings"],
 )
 
 filegroup(
@@ -555,7 +564,7 @@ official_communication_notifications_fragment = """
 <key>com.apple.developer.usernotifications.communication</key>
 <true/>
 """
-communication_notifications_fragment = official_communication_notifications_fragment if telegram_bundle_id in official_bundle_ids else ""
+communication_notifications_fragment = official_communication_notifications_fragment if telegram_bundle_id in official_bundle_ids else ""  # MARK: Swiftgram (restricted; only official bundles)
 
 official_notification_filtering_fragment = """
 <key>com.apple.developer.usernotifications.filtering</key>
@@ -679,40 +688,6 @@ plist_fragment(
     )
 )
 
-watchos_application(
-    name = "TelegramWatchApp",
-    bundle_id = "{telegram_bundle_id}.watchkitapp".format(
-        telegram_bundle_id = telegram_bundle_id,
-    ),
-    bundle_name = "SwiftgramWatch",
-    infoplists = [
-        ":WatchAppInfoPlist",
-        ":VersionInfoPlist",
-        ":BuildNumberInfoPlist",
-        ":AppNameInfoPlist",
-        ":WatchAppCompanionInfoPlist",
-    ],
-    minimum_os_version = minimum_watchos_version,
-    provisioning_profile = select({
-        ":disableProvisioningProfilesSetting": None,
-        "//conditions:default": ":Telegram_xcode_profile" if telegram_use_xcode_managed_codesigning else "@build_configuration//provisioning:WatchApp.mobileprovision",
-    }),
-    resources = [
-        ":TelegramWatchAppResources",
-        ":TelegramWatchAppAssets",
-        ":TelegramWatchExtensionResources",
-    ],
-    storyboards = [
-        ":TelegramWatchAppInterface",
-    ],
-    strings = [
-        ":WatchAppStringResources",
-    ],
-    deps = [
-        ":TelegramWatchLib",
-    ],
-)
-#
 
 plist_fragment(
     name = "MtProtoKitInfoPlist",
@@ -1817,6 +1792,8 @@ plist_fragment(
         <string>here-location</string>
         <string>yandexmaps</string>
         <string>yandexnavi</string>
+        <string>yandextaxi</string>
+        <string>yangoride</string>
         <string>comgooglemaps</string>
         <string>youtube</string>
         <string>twitter</string>
@@ -1845,6 +1822,8 @@ plist_fragment(
         <string>dolphin</string>
         <string>instagram-stories</string>
         <string>yangomaps</string>
+        <string>vivaldi</string>
+        <string>rizogo</string>
     </array>
     <key>LSRequiresIPhoneOS</key>
     <true/>
@@ -1882,7 +1861,6 @@ plist_fragment(
     </array>
     <key>UIAppFonts</key>
     <array>
-        <string>SFCompactRounded-Semibold.otf</string>
         <string>AremacFS-Regular.otf</string>
         <string>AremacFS-Semibold.otf</string>
     </array>
@@ -1972,6 +1950,19 @@ xcode_provisioning_profile(
    provisioning_profile = ":Telegram_local_profile",
 )
 
+apple_prebuilt_watchos_application(
+    name = "SwiftgramWatchApp",
+    # Watch bundle id tracks the host config ("<host>.watchkitapp"). The rule passes it
+    # to xcodebuild as PRODUCT_BUNDLE_IDENTIFIER (baked + signed); the watch Info.plist
+    # derives WKCompanionAppBundleIdentifier from it via $(PRODUCT_BUNDLE_IDENTIFIER:base),
+    # so the embedded watch app is correct for any host (ph.telegra.Telegraph,
+    # org.telegram.TelegramInternal, ...) with no post-build plist patching.
+    bundle_id = "{telegram_bundle_id}.watchkitapp".format(
+        telegram_bundle_id = telegram_bundle_id,
+    ),
+    tags = ["manual"],
+)
+
 ios_application(
     name = "Swiftgram",
     bundle_id = "{telegram_bundle_id}".format(
@@ -2023,6 +2014,13 @@ ios_application(
             ":BroadcastUploadExtension",
         ],
     }),
+    # Embed the in-repo tgwatch watch app (Telegram/WatchApp) under Watch/ only when
+    # --//Telegram:embedWatchApp is set (Make.py sets it for device configs when
+    # --embedWatchApp is passed). Off by default, so simulator/dev builds are unaffected.
+    watch_application = select({
+        ":embedWatchAppSetting": ":SwiftgramWatchApp",
+        "//conditions:default": None,
+    }),
     deps = [
         ":Main",
         ":Lib",
@@ -2033,6 +2031,7 @@ ios_application(
 xcodeproj(
     name = "Telegram_xcodeproj",
     bazel_path = telegram_bazel_path,
+    bazel_env = {"LANG": "en_US.UTF-8","PATH": "/opt/homebrew/bin:/usr/local/bin:/bin:/usr/bin"}, # MARK: Swiftgram, otherwise Bazel through xcode does not see ccache
     project_name = "Swiftgram",
     tags = ["manual"],
     top_level_targets = [
@@ -2078,7 +2077,7 @@ ios_ui_test_suite(
         ":iPhone-17__26.2",
     ],
     tags = ["manual"],
-    test_host = "//Telegram",
+    test_host = "//Telegram:Swiftgram", # MARK: Swiftgram
     visibility = ["@rules_xcodeproj//xcodeproj:generated"],
     deps = [":iOSAppUITestSuite.library"],
 )

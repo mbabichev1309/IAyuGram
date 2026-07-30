@@ -81,7 +81,7 @@ public func makeChatSendMessageActionSheetController(
     hasEntityKeyboard: Bool,
     gesture: ContextGesture?,
     sourceSendButton: UIView,
-    textInputView: UITextView?,
+    textInputSource: ChatSendMessageContextScreenTextInputSource?,
     emojiViewProvider: ((ChatTextInputTextCustomEmojiAttribute) -> UIView)?,
     wallpaperBackgroundNode: WallpaperBackgroundNode? = nil,
     completion: @escaping () -> Void,
@@ -91,7 +91,8 @@ public func makeChatSendMessageActionSheetController(
     openPremiumPaywall: @escaping (ViewController) -> Void,
     reactionItems: [ReactionItem]? = nil,
     availableMessageEffects: AvailableMessageEffects? = nil,
-    isPremium: Bool = false
+    isPremium: Bool = false,
+    richTextPreview: ChatSendMessageContextScreenRichTextPreview? = nil
 ) -> ChatSendMessageActionSheetController {
     return ChatSendMessageContextScreen(
         sgTranslationContext: sgTranslationContext,
@@ -103,7 +104,7 @@ public func makeChatSendMessageActionSheetController(
         hasEntityKeyboard: hasEntityKeyboard,
         gesture: gesture,
         sourceSendButton: sourceSendButton,
-        textInputView: textInputView,
+        textInputSource: textInputSource,
         emojiViewProvider: emojiViewProvider,
         wallpaperBackgroundNode: wallpaperBackgroundNode,
         completion: completion,
@@ -113,6 +114,7 @@ public func makeChatSendMessageActionSheetController(
         openPremiumPaywall: openPremiumPaywall,
         reactionItems: reactionItems,
         availableMessageEffects: availableMessageEffects,
-        isPremium: isPremium
+        isPremium: isPremium,
+        richTextPreview: richTextPreview
     )
 }
