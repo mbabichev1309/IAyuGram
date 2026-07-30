@@ -102,6 +102,8 @@ private func dialogReadState(network: Network, postbox: Postbox, peerId: PeerId)
                                 if let pts = pts {
                                     apiChannelPts = pts
                                 }
+                            case .dialogCommunity:
+                                return .single(nil)
                             case .dialogFolder:
                                 assertionFailure()
                                 return .fail(.retry)

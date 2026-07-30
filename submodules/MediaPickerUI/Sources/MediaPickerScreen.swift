@@ -3,7 +3,6 @@ import Foundation
 import UIKit
 import Display
 import AsyncDisplayKit
-import Postbox
 import TelegramCore
 import SwiftSignalKit
 import AccountContext
@@ -17,7 +16,6 @@ import LegacyComponents
 import LegacyMediaPickerUI
 import AttachmentUI
 import ContextUI
-import WebSearchUI
 import SparseItemGrid
 import UndoUI
 import PresentationDataUtils
@@ -194,8 +192,9 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             case addImage
             case cover
             case createSticker
-            case createAvatar
+            case createAvatar(mode: PeerType)
             case poll(mode: PollMode, asFile: Bool)
+            case richText(asFile: Bool)
         }
         
         case assets(PHAssetCollection?, AssetsMode)
@@ -241,19 +240,14 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
     private let cancelButtonNode: WebAppCancelButtonNode
     
     private var buttons: ComponentView<Empty>?
-    private var cancelButton: ComponentView<Empty>?
-    private var rightButton: ComponentView<Empty>?
     private let moreButtonPlayOnce = ActionSlot<Void>()
     
     private let moreButtonNode: MoreButtonNode
     private let selectedButtonNode: SelectedButtonNode
     
-    public weak var webSearchController: WebSearchController?
-    
     public var openCamera: ((Any?) -> Void)?
-    public var presentSchedulePicker: (Bool, @escaping (Int32) -> Void) -> Void = { _, _ in }
+    public var presentSchedulePicker: (Bool, @escaping (Int32, Bool) -> Void) -> Void = { _, _ in }
     public var presentTimerPicker: (@escaping (Int32) -> Void) -> Void = { _ in }
-    public var presentWebSearch: (MediaGroupsScreen, Bool) -> Void = { _, _ in }
     public var getCaptionPanelView: () -> TGCaptionPanelView? = { return nil }
     public var openBoost: () -> Void = { }
     
@@ -709,8 +703,13 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             var useModernCamera = false
             if case .assets(nil, .default) = controller.subject {
                 useLegacyCamera = true
-            } else if case .assets(nil, let mode) = controller.subject, [.createSticker, .createAvatar].contains(mode) {
-                useModernCamera = true
+            } else if case .assets(nil, let mode) = controller.subject {
+                switch mode {
+                case .createSticker, .createAvatar:
+                    useModernCamera = true
+                default:
+                    break
+                }
             }
             
             if useLegacyCamera && !SGSimpleSettings.shared.disableGalleryCamera {
@@ -1525,28 +1524,32 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             }
         }
 
-        private func openLimitedMediaOptions() {
-            let presentationData = self.presentationData
-            let controller = ActionSheetController(presentationData: self.presentationData)
-            let dismissAction: () -> Void = { [weak controller] in
-                controller?.dismissAnimated()
+        private func openLimitedMediaOptions(sourceView: UIView) {
+            guard let controller = self.controller else {
+                return
             }
-            controller.setItemGroups([
-                ActionSheetItemGroup(items: [
-                    ActionSheetButtonItem(title: presentationData.strings.Media_LimitedAccessSelectMore, color: .accent, action: { [weak self] in
-                        dismissAction()
-                        if #available(iOS 14.0, *), let strongController = self?.controller {
-                            PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: strongController)
-                        }
-                    }),
-                    ActionSheetButtonItem(title: presentationData.strings.Media_LimitedAccessChangeSettings, color: .accent, action: { [weak self] in
-                        dismissAction()
-                        self?.controller?.context.sharedContext.applicationBindings.openSettings()
-                    })
-                ]),
-                ActionSheetItemGroup(items: [ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, action: { dismissAction() })])
-            ])
-            self.controller?.present(controller, in: .window(.root))
+
+            let presentationData = self.presentationData
+            let items: [ContextMenuItem] = [
+                .action(ContextMenuActionItem(text: presentationData.strings.Media_LimitedAccessSelectMore, icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Image"), color: theme.contextMenu.primaryColor)
+                }, action: { [weak self] _, f in
+                    f(.default)
+
+                    if #available(iOS 14.0, *), let controller = self?.controller {
+                        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller)
+                    }
+                })),
+                .action(ContextMenuActionItem(text: presentationData.strings.Media_LimitedAccessChangeSettings, icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Settings"), color: theme.contextMenu.primaryColor)
+                }, action: { [weak self] _, f in
+                    f(.default)
+
+                    self?.controller?.context.sharedContext.applicationBindings.openSettings()
+                }))
+            ]
+            let contextController = makeContextController(presentationData: presentationData, source: .reference(MediaPickerContextReferenceContentSource(controller: controller, sourceView: sourceView)), items: .single(ContextController.Items(content: .list(items))), gesture: nil)
+            controller.presentInGlobalOverlay(contextController)
         }
         
         private func getItemSnapshot(_ identifier: String) -> UIView? {
@@ -1778,9 +1781,9 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                             manageNode = current
                         } else {
                             manageNode = MediaPickerManageNode()
-                            manageNode.pressed = { [weak self] in
+                            manageNode.pressed = { [weak self] sourceView in
                                 if let strongSelf = self {
-                                    strongSelf.openLimitedMediaOptions()
+                                    strongSelf.openLimitedMediaOptions(sourceView: sourceView)
                                 }
                             }
                             self.manageNode = manageNode
@@ -1796,7 +1799,7 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                             manageNode = current
                         } else {
                             manageNode = MediaPickerManageNode()
-                            manageNode.pressed = { [weak self] in
+                            manageNode.pressed = { [weak self] _ in
                                 self?.controller?.context.sharedContext.applicationBindings.openSettings()
                             }
                             self.manageNode = manageNode
@@ -2078,9 +2081,18 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                     self.titleView.title = presentationData.strings.MediaPicker_Recents
                     self.titleView.subtitle = presentationData.strings.MediaPicker_CreateSticker
                     self.titleView.isEnabled = true
-                case .createAvatar:
+                case let .createAvatar(avatarMode):
                     self.titleView.title = presentationData.strings.MediaPicker_Recents
-                    self.titleView.subtitle = presentationData.strings.MediaPicker_SetNewPhoto
+                    switch avatarMode {
+                    case .user:
+                        self.titleView.subtitle = presentationData.strings.MediaPicker_SetNewPhoto
+                    case .group:
+                        self.titleView.subtitle = presentationData.strings.MediaPicker_SetNewGroupPhoto
+                    case .channel:
+                        self.titleView.subtitle = presentationData.strings.MediaPicker_SetNewChannelPhoto
+                    case .community:
+                        self.titleView.subtitle = presentationData.strings.MediaPicker_SetNewCommunityPhoto
+                    }
                     self.titleView.isEnabled = true
                 case .story:
                     self.titleView.title = presentationData.strings.MediaPicker_Recents
@@ -2102,6 +2114,10 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                         self.titleView.subtitle = presentationData.strings.MediaPicker_PollSubtitle_PollOption
                     }
                     self.titleView.isEnabled = true
+                case .richText:
+                    self.titleView.title = presentationData.strings.MediaPicker_Recents
+                    self.titleView.subtitle = presentationData.strings.RichText_AddMediaTitle
+                    self.titleView.isEnabled = true
                 }
             }
         } else {
@@ -2109,7 +2125,6 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         }
         
         if case .glass = style {
-            self.cancelButton = ComponentView()
             self.buttons = ComponentView()
         }
         self.cancelButtonNode = WebAppCancelButtonNode(theme: self.presentationData.theme, strings: self.presentationData.strings)
@@ -2218,21 +2233,13 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         
         self.scrollToTop = { [weak self] in
             if let strongSelf = self {
-                if let webSearchController = strongSelf.webSearchController {
-                    webSearchController.scrollToTop?()
-                } else {
-                    strongSelf.controllerNode.scrollToTop(animated: true)
-                }
+                strongSelf.controllerNode.scrollToTop(animated: true)
             }
         }
         
         self.scrollToTopWithTabBar = { [weak self] in
             if let strongSelf = self {
-                if let webSearchController = strongSelf.webSearchController {
-                    webSearchController.cancel()
-                } else {
-                    strongSelf.scrollToTop?()
-                }
+                strongSelf.scrollToTop?()
             }
         }
         
@@ -2306,8 +2313,8 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             }
         }, schedule: { [weak self] parameters in
             if let strongSelf = self {
-                strongSelf.presentSchedulePicker(false, { [weak self] time in
-                    self?.interaction?.sendSelected(nil, false, time, true, parameters, {})
+                strongSelf.presentSchedulePicker(false, { [weak self] time, silentPosting in
+                    self?.interaction?.sendSelected(nil, silentPosting, time, true, parameters, {})
                 })
             }
         }, dismissInput: { [weak self] in
@@ -2831,7 +2838,7 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             self.updateNavigationStack { current in
                 var mediaPickerContext: AttachmentMediaPickerContext?
                 if let first = current.first as? MediaPickerScreenImpl {
-                    mediaPickerContext = first.webSearchController?.mediaPickerContext ?? first.mediaPickerContext
+                    mediaPickerContext = first.mediaPickerContext
                 }
                 return (current.filter { $0 !== self }, mediaPickerContext)
             }
@@ -2914,10 +2921,6 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
     }
     
     public func resetForReuse() {
-        if let webSearchController = self.webSearchController {
-            self.webSearchController = nil
-            webSearchController.dismiss()
-        }
         self.scrollToTop?()
         
         self.controllerNode.isSuspended = true
@@ -2980,8 +2983,6 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         
         if case .story = mode {
             self.updateNavigationStack({ _ in return ([self, groupsController], self.mediaPickerContext)})
-        } else {
-            self.presentWebSearch(groupsController, activateOnDisplay)
         }
         self.groupsController = groupsController
     }
@@ -3598,26 +3599,6 @@ public func mediaPickerController(
             completion(result)
             controller.dismiss(animated: true)
         }
-        if hasSearch {
-            mediaPickerController.presentWebSearch = { [weak mediaPickerController] groups, activateOnDisplay in
-                let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Configuration.SearchBots())
-                |> deliverOnMainQueue).start(next: { configuration in
-                    let webSearchController = WebSearchController(
-                        context: context,
-                        updatedPresentationData: updatedPresentationData,
-                        peer: nil,
-                        chatLocation: nil,
-                        configuration: configuration,
-                        mode: .editor(completion: { [weak mediaPickerController] image in
-                            completion(image)
-                            mediaPickerController?.dismiss(animated: true)
-                        }),
-                        activateOnDisplay: activateOnDisplay
-                    )
-                    mediaPickerController?.present(webSearchController, in: .current)
-                })
-            }
-        }
         present(mediaPickerController, mediaPickerController.mediaPickerContext)
         return true
     }
@@ -3918,6 +3899,7 @@ public func stickerMediaPickerController(
 
 public func avatarMediaPickerController(
     context: AccountContext,
+    peerType: PeerType,
     getSourceRect: @escaping () -> CGRect?,
     canDelete: Bool,
     performDelete: @escaping () -> Void,
@@ -3928,19 +3910,33 @@ public func avatarMediaPickerController(
         final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
             var completion: ((Any?, UIView?, CGRect, UIImage?, Bool, @escaping (Bool?) -> (UIView, CGRect)?, @escaping () -> Void) -> Void)?
             
-            func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-                picker.dismiss(animated: true)
-
-                for item in results {
-                    if item.itemProvider.canLoadObject(ofClass: UIImage.self) {
-                        item.itemProvider.loadObject(ofClass: UIImage.self) { image, error in
-                            if let uiImage = image as? UIImage {
-                                Queue.mainQueue().async {
-                                    self.completion?(uiImage, nil, CGRect(), nil, false, { _ in return nil }, {})
-                                }
+            private func resolveResult(_ result: PHPickerResult) {
+                if let assetIdentifier = result.assetIdentifier {
+                    let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
+                    if let asset = fetchResult.firstObject {
+                        Queue.mainQueue().async {
+                            self.completion?(asset, nil, CGRect(), nil, false, { _ in return nil }, {})
+                        }
+                        return
+                    }
+                }
+                
+                if result.itemProvider.canLoadObject(ofClass: UIImage.self) {
+                    result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] image, _ in
+                        if let uiImage = image as? UIImage {
+                            Queue.mainQueue().async {
+                                self?.completion?(uiImage, nil, CGRect(), nil, false, { _ in return nil }, {})
                             }
                         }
                     }
+                }
+            }
+            
+            func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+                picker.dismiss(animated: true)
+                
+                if let result = results.first {
+                    self.resolveResult(result)
                 }
             }
         }
@@ -3950,7 +3946,7 @@ public func avatarMediaPickerController(
         
         let openMediaPicker = {
             var configuration = PHPickerConfiguration(photoLibrary: .shared())
-            configuration.filter = .images
+            configuration.filter = .any(of: [.images, .videos])
             configuration.selectionLimit = 1
             
             let picker = PHPickerViewController(configuration: configuration)
@@ -4017,7 +4013,7 @@ public func avatarMediaPickerController(
                 chatLocation: nil,
                 bannedSendPhotos: nil,
                 bannedSendVideos: nil,
-                subject: .assets(nil, .createAvatar),
+                subject: .assets(nil, .createAvatar(mode: peerType)),
                 mainButtonState: mainButtonState,
                 mainButtonAction: { [weak controller] in
                     controller?.dismiss(animated: true)

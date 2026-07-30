@@ -12,7 +12,6 @@ import SwiftSignalKit
 import AppBundle
 import MessageInputPanelComponent
 import TelegramCore
-import Postbox
 import UndoUI
 import ReactionSelectionNode
 import EntityKeyboard
@@ -280,14 +279,14 @@ private final class StoryContainerScreenComponent: Component {
     
     let context: AccountContext
     let content: StoryContentContext
-    let focusedItemPromise: Promise<StoryId?>
+    let focusedItemPromise: Promise<EngineStoryId?>
     let transitionIn: StoryContainerScreen.TransitionIn?
     let transitionOut: (EnginePeer.Id, Int32) -> StoryContainerScreen.TransitionOut?
     
     init(
         context: AccountContext,
         content: StoryContentContext,
-        focusedItemPromise: Promise<StoryId?>,
+        focusedItemPromise: Promise<EngineStoryId?>,
         transitionIn: StoryContainerScreen.TransitionIn?,
         transitionOut: @escaping (EnginePeer.Id, Int32) -> StoryContainerScreen.TransitionOut?
     ) {
@@ -374,7 +373,7 @@ private final class StoryContainerScreenComponent: Component {
         private let backgroundLayer: SimpleLayer
         private let backgroundEffectView: BlurredBackgroundView
         
-        private let focusedItem = ValuePromise<StoryId?>(nil, ignoreRepeated: true)
+        private let focusedItem = ValuePromise<EngineStoryId?>(nil, ignoreRepeated: true)
         private var stateValue: StoryContentContextState?
         private var contentUpdatedDisposable: Disposable?
         
@@ -428,7 +427,7 @@ private final class StoryContainerScreenComponent: Component {
         
         var longPressRecognizer: StoryLongPressRecognizer?
         
-        private var pendingNavigationToItemId: StoryId?
+        private var pendingNavigationToItemId: EngineStoryId?
         
         private let storiesWarning = ComponentView<Empty>()
         private var requestedDisplayStoriesWarning: Bool = SGSimpleSettings.shared.warnOnStoriesOpen // MARK: Swiftgram
@@ -992,6 +991,9 @@ private final class StoryContainerScreenComponent: Component {
                         if let environment = self.environment, case .regular = environment.metrics.widthClass {
                             if result.isDescendant(of: self.backgroundEffectView) {
                                 if let stateValue = self.stateValue, let slice = stateValue.slice, let itemSetView = self.visibleItemSetViews[slice.peer.id] {
+                                    if point.x < itemSetView.frame.minX || point.x > itemSetView.frame.maxX {
+                                        return result
+                                    }
                                     return itemSetView.view.view
                                 }
                             }
@@ -1239,7 +1241,7 @@ private final class StoryContainerScreenComponent: Component {
                         self.commitHorizontalPan(velocity: CGPoint(x: 200.0, y: 0.0))
                     }
                 } else {
-                    var mappedId: StoryId?
+                    var mappedId: EngineStoryId?
                     switch direction {
                     case .previous:
                         mappedId = slice.previousItemId
@@ -1254,6 +1256,13 @@ private final class StoryContainerScreenComponent: Component {
                     }
                 }
             }
+        }
+
+        fileprivate func navigateWithKeyShortcut(direction: StoryItemSetContainerComponent.NavigationDirection) {
+            guard !hasFirstResponder(self) else {
+                return
+            }
+            self.navigate(direction: direction)
         }
         
         func presentExternalTooltip(_ tooltipScreen: UndoOverlayController) {
@@ -1387,10 +1396,10 @@ private final class StoryContainerScreenComponent: Component {
                     
                     let stateValue = component.content.stateValue
                     
-                    var focusedItemId: StoryId?
+                    var focusedItemId: EngineStoryId?
                     var isVideo = false
                     if let slice = stateValue?.slice {
-                        focusedItemId = StoryId(peerId: slice.peer.id, id: slice.item.storyItem.id)
+                        focusedItemId = EngineStoryId(peerId: slice.peer.id, id: slice.item.storyItem.id)
                         if case .file = slice.item.storyItem.media {
                             isVideo = true
                         }
@@ -2085,7 +2094,7 @@ private final class StoryContainerScreenComponent: Component {
     }
 }
 
-public class StoryContainerScreen: ViewControllerComponentContainer {
+public class StoryContainerScreen: ViewControllerComponentContainer, KeyShortcutResponder {
     public struct TransitionState: Equatable {
         public var sourceSize: CGSize
         public var destinationSize: CGSize
@@ -2166,8 +2175,8 @@ public class StoryContainerScreen: ViewControllerComponentContainer {
     private var didAnimateIn: Bool = false
     private var isDismissed: Bool = false
     
-    private let focusedItemPromise = Promise<StoryId?>()
-    public var focusedItem: Signal<StoryId?, NoError> {
+    private let focusedItemPromise = Promise<EngineStoryId?>()
+    public var focusedItem: Signal<EngineStoryId?, NoError> {
         return self.focusedItemPromise.get()
     }
     
@@ -2224,6 +2233,56 @@ public class StoryContainerScreen: ViewControllerComponentContainer {
                 componentView.animateIn()
             }
         }
+    }
+
+    public var keyShortcuts: [KeyShortcut] {
+        if self.isViewLoaded, hasFirstResponder(self.view) {
+            return []
+        }
+        var keyShortcuts: [KeyShortcut] = []
+        keyShortcuts.append(
+            KeyShortcut(
+                title: "",
+                input: UIKeyCommand.inputUpArrow,
+                modifiers: [.command],
+                action: { [weak self] in
+                    self?.dismiss()
+                }
+            )
+        )
+        keyShortcuts.append(
+            KeyShortcut(
+                title: "",
+                input: "W",
+                modifiers: [.command],
+                action: { [weak self] in
+                    self?.dismiss()
+                }
+            )
+        )
+        keyShortcuts.append(
+            KeyShortcut(
+                input: UIKeyCommand.inputLeftArrow,
+                modifiers: [],
+                action: { [weak self] in
+                    if let componentView = self?.node.hostView.componentView as? StoryContainerScreenComponent.View {
+                        componentView.navigateWithKeyShortcut(direction: .previous)
+                    }
+                }
+            )
+        )
+        keyShortcuts.append(
+            KeyShortcut(
+                input: UIKeyCommand.inputRightArrow,
+                modifiers: [],
+                action: { [weak self] in
+                    if let componentView = self?.node.hostView.componentView as? StoryContainerScreenComponent.View {
+                        componentView.navigateWithKeyShortcut(direction: .next)
+                    }
+                }
+            )
+        )
+        return keyShortcuts
     }
     
     public func presentExternalTooltip(_ tooltipScreen: UndoOverlayController) {
@@ -2305,13 +2364,9 @@ public class StoryContainerScreen: ViewControllerComponentContainer {
 }
 
 func allowedStoryReactions(context: AccountContext) -> Signal<[ReactionItem], NoError> {
-    let viewKey: PostboxViewKey = .orderedItemList(id: Namespaces.OrderedItemList.CloudTopReactions)
-    let topReactions = context.account.postbox.combinedView(keys: [viewKey])
-    |> map { views -> [RecentReactionItem] in
-        guard let view = views.views[viewKey] as? OrderedItemListView else {
-            return []
-        }
-        return view.items.compactMap { item -> RecentReactionItem? in
+    let topReactions = context.engine.data.subscribe(TelegramEngine.EngineData.Item.OrderedLists.ListItems(collectionId: Namespaces.OrderedItemList.CloudTopReactions))
+    |> map { items -> [RecentReactionItem] in
+        return items.compactMap { item -> RecentReactionItem? in
             return item.contents.get(RecentReactionItem.self)
         }
     }

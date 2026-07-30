@@ -3,7 +3,6 @@ import Foundation
 import UIKit
 import Display
 import AsyncDisplayKit
-import Postbox
 import TelegramCore
 import SwiftSignalKit
 import AccountContext
@@ -14,11 +13,12 @@ import ViewControllerComponent
 import SheetComponent
 import MultilineTextComponent
 import BundleIconComponent
-import SolidRoundedButtonComponent
+import ButtonComponent
 import BlurredBackgroundComponent
 import Markdown
 import TelegramUIPreferences
 import GlassBarButtonComponent
+import LottieComponent
 
 public final class PremiumGradientBackgroundComponent: Component {
     public let colors: [UIColor]
@@ -133,14 +133,6 @@ public final class PremiumGradientBackgroundComponent: Component {
                 }
                 
                 self.gradientLayer.add(animation, forKey: "movement")
-                
-//                let secondPreviousValue = self.gradientLayer.startPoint
-//                let secondAnimation = CABasicAnimation(keyPath: "startPoint")
-//                secondAnimation.duration = 4.5
-//                secondAnimation.fromValue = secondPreviousValue
-//                secondAnimation.toValue = secondNewValue
-//
-//                self.gradientLayer.add(secondAnimation, forKey: "movement2")
                 
                 CATransaction.commit()
             }
@@ -557,21 +549,10 @@ private final class DemoSheetContent: CombinedComponent {
                 EngineDataMap(accountSpecificStickerOverrides.map(\.messageId).map(TelegramEngine.EngineData.Item.Messages.Message.init))
             )
             
-            let stickersKey: PostboxViewKey = .orderedItemList(id: Namespaces.OrderedItemList.CloudPremiumStickers)
             self.disposable = (combineLatest(
                 queue: Queue.mainQueue(),
                 self.context.engine.stickers.availableReactions(),
-                self.context.account.postbox.combinedView(keys: [stickersKey])
-                |> map { views -> [OrderedItemListEntry]? in
-                    if let view = views.views[stickersKey] as? OrderedItemListView {
-                        return view.items
-                    } else {
-                        return nil
-                    }
-                }
-                |> filter { items in
-                    return items != nil
-                }
+                self.context.engine.data.subscribe(TelegramEngine.EngineData.Item.OrderedLists.ListItems(collectionId: Namespaces.OrderedItemList.CloudPremiumStickers))
                 |> take(1),
                 self.context.engine.data.get(
                     TelegramEngine.EngineData.Item.Peer.Peer(id: self.context.account.peerId),
@@ -605,11 +586,9 @@ private final class DemoSheetContent: CombinedComponent {
                 
                 if let reactions = reactions {
                     var result: [TelegramMediaFile] = []
-                    if let items = items {
-                        for item in items {
-                            if let mediaItem = item.contents.get(RecentMediaItem.self) {
-                                result.append(mediaItem.media._parse())
-                            }
+                    for item in items {
+                        if let mediaItem = item.contents.get(RecentMediaItem.self) {
+                            result.append(mediaItem.media._parse())
                         }
                     }
                     return (reactions.reactions.filter({ $0.isPremium }).map { reaction -> AvailableReactions.Reaction in
@@ -686,7 +665,7 @@ private final class DemoSheetContent: CombinedComponent {
         let closeButton = Child(GlassBarButtonComponent.self)
         let background = Child(PremiumGradientBackgroundComponent.self)
         let pager = Child(DemoPagerComponent.self)
-        let button = Child(SolidRoundedButtonComponent.self)
+        let button = Child(ButtonComponent.self)
         let measureText = Child(MultilineTextComponent.self)
         
         return { context in
@@ -1150,6 +1129,26 @@ private final class DemoSheetContent: CombinedComponent {
                     )
                 )
                 
+                availableItems[.richText] = DemoPagerComponent.Item(
+                    AnyComponentWithIdentity(
+                        id: PremiumDemoScreen.Subject.richText,
+                        component: AnyComponent(
+                            PageComponent(
+                                content: AnyComponent(PhoneDemoComponent(
+                                    context: component.context,
+                                    position: .top,
+                                    model: .island,
+                                    videoFile: configuration.videos["rich_formatting"],
+                                    decoration: .badgeStars
+                                )),
+                                title: strings.Premium_RichText,
+                                text: strings.Premium_RichTextInfo,
+                                textColor: textColor
+                            )
+                        )
+                    )
+                )
+                
                 let index: Int = 0
                 var items: [DemoPagerComponent.Item] = []
                 if let item = availableItems.first(where: { $0.value.content.id == component.subject as AnyHashable }) {
@@ -1243,7 +1242,9 @@ private final class DemoSheetContent: CombinedComponent {
             case .copyProtection:
                 text = strings.Premium_CopyProtectionInfo
             case .aiTools:
-                text = "Transform your messages and entire chats in your preferred style and language."
+                text = strings.Premium_AiToolsInfo
+            case .richText:
+                text = strings.Premium_RichTextInfo
             default:
                 text = ""
             }
@@ -1334,6 +1335,8 @@ private final class DemoSheetContent: CombinedComponent {
                             buttonText = strings.Premium_PaidMessages_Proceed
                         case .aiTools:
                             buttonText = strings.Premium_PaidMessages_Proceed
+                        case .richText:
+                            buttonText = strings.Premium_PaidMessages_Proceed
                         default:
                             buttonText = strings.Common_OK
                     }
@@ -1341,28 +1344,46 @@ private final class DemoSheetContent: CombinedComponent {
             }
             
             let bottomInsets = ContainerViewLayout.concentricInsets(bottomInset: environment.safeInsets.bottom, innerDiameter: 52.0, sideInset: 30.0)
+            let premiumGradientColors = [
+                UIColor(rgb: 0x0077ff),
+                UIColor(rgb: 0x6b93ff),
+                UIColor(rgb: 0x8878ff),
+                UIColor(rgb: 0xe46ace)
+            ]
+            var buttonTitle: [AnyComponentWithIdentity<Empty>] = []
+            buttonTitle.append(AnyComponentWithIdentity(id: 0, component: AnyComponent(ButtonTextContentComponent(
+                text: buttonText,
+                badge: 0,
+                textColor: .white,
+                badgeBackground: .white,
+                badgeForeground: premiumGradientColors[0]
+            ))))
+            if isStandalone, let buttonAnimationName {
+                buttonTitle.append(AnyComponentWithIdentity(id: 1, component: AnyComponent(LottieComponent(
+                    content: LottieComponent.AppBundleContent(name: buttonAnimationName),
+                    color: .white,
+                    startingPosition: .begin,
+                    size: CGSize(width: 30.0, height: 30.0),
+                    loop: true
+                ))))
+            }
             let button = button.update(
-                component: SolidRoundedButtonComponent(
-                    title: buttonText,
-                    theme: SolidRoundedButtonComponent.Theme(
-                        backgroundColor: .black,
-                        backgroundColors: [
-                            UIColor(rgb: 0x0077ff),
-                            UIColor(rgb: 0x6b93ff),
-                            UIColor(rgb: 0x8878ff),
-                            UIColor(rgb: 0xe46ace)
-                        ],
-                        foregroundColor: .white
+                component: ButtonComponent(
+                    background: ButtonComponent.Background(
+                        style: .glass,
+                        color: premiumGradientColors[0],
+                        foreground: .white,
+                        pressedColor: premiumGradientColors[0],
+                        isShimmering: state.isPremium != true,
+                        gradient: ButtonComponent.Background.Gradient(
+                            colors: premiumGradientColors,
+                            animation: .horizontalShift(duration: 4.5)
+                        )
                     ),
-                    font: .bold,
-                    fontSize: 17.0,
-                    height: 52.0,
-                    cornerRadius: 26.0,
-                    gloss: state.isPremium != true,
-                    glass: true,
-                    animationName: isStandalone ? buttonAnimationName : nil,
-                    iconPosition: .right,
-                    iconSpacing: 4.0,
+                    content: AnyComponentWithIdentity(
+                        id: AnyHashable("\(buttonText)-\(isStandalone ? buttonAnimationName ?? "" : "")"),
+                        component: AnyComponent(HStack(buttonTitle, spacing: 4.0))
+                    ),
                     action: { [weak component, weak state] in
                         guard let component = component else {
                             return
@@ -1524,6 +1545,7 @@ public class PremiumDemoScreen: ViewControllerComponentContainer {
         case todo
         case copyProtection
         case aiTools
+        case richText
         
         case businessLocation
         case businessHours
@@ -1588,6 +1610,8 @@ public class PremiumDemoScreen: ViewControllerComponentContainer {
                 return .copyProtection
             case .aiTools:
                 return .aiTools
+            case .richText:
+                return .richText
             case .businessLocation:
                 return .businessLocation
             case .businessHours:

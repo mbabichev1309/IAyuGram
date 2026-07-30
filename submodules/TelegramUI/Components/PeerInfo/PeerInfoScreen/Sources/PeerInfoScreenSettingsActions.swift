@@ -5,7 +5,6 @@ import UIKit
 import Display
 import AccountContext
 import SwiftSignalKit
-import Postbox
 import TelegramCore
 import SettingsUI
 import PeerInfoStoryGridScreen
@@ -74,7 +73,6 @@ extension PeerInfoScreenNode {
                 peerId: self.context.account.peerId,
                 avatarInitiallyExpanded: false,
                 isOpenedFromChat: false,
-                nearbyPeerDistance: nil,
                 reactionSourceMessageId: nil,
                 callMessages: [],
                 isMyProfile: true,
@@ -190,7 +188,7 @@ extension PeerInfoScreenNode {
         case .watch:
             push(watchSettingsController(context: self.context))
         case .support:
-            let supportPeer = Promise<PeerId?>()
+            let supportPeer = Promise<EnginePeer.Id?>()
             supportPeer.set(context.engine.peers.supportPeerId())
             
             self.controller?.present(textAlertController(context: self.context, updatedPresentationData: self.controller?.updatedPresentationData, title: nil, text: self.presentationData.strings.Settings_FAQ_Intro, actions: [
@@ -214,7 +212,7 @@ extension PeerInfoScreenNode {
             guard let controller = self.controller, !controller.presentAccountFrozenInfoIfNeeded() else {
                 return
             }
-            if let user = self.data?.peer as? TelegramUser, let phoneNumber = user.phone {
+            if case let .user(user) = self.data?.peer, let phoneNumber = user.phone {
                 let introController = PrivacyIntroController(context: self.context, mode: .changePhoneNumber(phoneNumber), proceedAction: { [weak self] in
                     if let strongSelf = self, let navigationController = strongSelf.controller?.navigationController as? NavigationController {
                         navigationController.replaceTopController(ChangePhoneNumberController(context: strongSelf.context), animated: true)
@@ -283,7 +281,7 @@ extension PeerInfoScreenNode {
                 }
             })
         case .logout:
-            if let user = self.data?.peer as? TelegramUser, let phoneNumber = user.phone {
+            if case let .user(user) = self.data?.peer, let phoneNumber = user.phone {
                 if let controller = self.controller, let navigationController = controller.navigationController as? NavigationController {
                     self.controller?.push(logoutOptionsController(context: self.context, navigationController: navigationController, canAddAccounts: true, phoneNumber: phoneNumber))
                 }

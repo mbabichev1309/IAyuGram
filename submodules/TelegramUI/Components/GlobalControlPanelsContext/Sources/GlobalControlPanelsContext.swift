@@ -77,6 +77,7 @@ public final class GlobalControlPanelsContext {
         case setupBirthday
         case birthdayPremiumGift(peers: [EnginePeer], birthdays: [EnginePeer.Id: TelegramBirthday])
         case reviewLogin(newSessionReview: NewSessionReview, totalCount: Int)
+        case reviewBotConnection(newBotConnectionReview: NewBotConnectionReview, botUsername: String, totalCount: Int)
         case premiumGrace
         case starsSubscriptionLowBalance(amount: StarsAmount, peers: [EnginePeer])
         case setupPhoto(EnginePeer)
@@ -317,9 +318,9 @@ public final class GlobalControlPanelsContext {
             if chatListNotices {
                 let twoStepData: Signal<TwoStepVerificationConfiguration?, NoError> = .single(nil) |> then(context.engine.auth.twoStepVerificationConfiguration() |> map(Optional.init))
                 
-                let accountFreezeConfiguration = (context.account.postbox.preferencesView(keys: [PreferencesKeys.appConfiguration])
+                let accountFreezeConfiguration = (context.engine.data.subscribe(TelegramEngine.EngineData.Item.Configuration.ApplicationSpecificPreference(key: PreferencesKeys.appConfiguration))
                                                   |> map { view -> AppConfiguration in
-                    let appConfiguration: AppConfiguration = view.values[PreferencesKeys.appConfiguration]?.get(AppConfiguration.self) ?? AppConfiguration.defaultValue
+                    let appConfiguration: AppConfiguration = view?.get(AppConfiguration.self) ?? AppConfiguration.defaultValue
                     return appConfiguration
                 }
                 |> distinctUntilChanged
@@ -335,6 +336,7 @@ public final class GlobalControlPanelsContext {
                     context.engine.notices.getServerDismissedSuggestions(),
                     twoStepData,
                     newSessionReviews(postbox: context.account.postbox),
+                    newBotConnectionReviews(postbox: context.account.postbox),
                     context.engine.data.subscribe(
                         TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId),
                         TelegramEngine.EngineData.Item.Peer.Birthday(id: context.account.peerId)
@@ -343,7 +345,7 @@ public final class GlobalControlPanelsContext {
                     starsSubscriptionsContextPromise.get(),
                     accountFreezeConfiguration
                 )
-                |> mapToSignal { sgSuggestionsData, suggestions, dismissedSuggestions, configuration, newSessionReviews, data, birthdays, starsSubscriptionsContext, accountFreezeConfiguration -> Signal<ChatListNotice?, NoError> in
+                |> mapToSignal { sgSuggestionsData, suggestions, dismissedSuggestions, configuration, newSessionReviews, newBotConnectionReviews, data, birthdays, starsSubscriptionsContext, accountFreezeConfiguration -> Signal<ChatListNotice?, NoError> in
                     let (accountPeer, birthday) = data
                     
 
@@ -357,6 +359,18 @@ public final class GlobalControlPanelsContext {
                     //
                     if let newSessionReview = newSessionReviews.first {
                         return .single(.reviewLogin(newSessionReview: newSessionReview, totalCount: newSessionReviews.count))
+                    }
+                    if let newBotConnectionReview = newBotConnectionReviews.first {
+                        return context.engine.data.get(
+                            TelegramEngine.EngineData.Item.Peer.Peer(id: newBotConnectionReview.botId)
+                        )
+                        |> map { peer -> ChatListNotice? in
+                            return .reviewBotConnection(
+                                newBotConnectionReview: newBotConnectionReview,
+                                botUsername: peer?.addressName ?? "",
+                                totalCount: newBotConnectionReviews.count
+                            )
+                        }
                     }
                     if suggestions.contains(.setupPassword), let configuration {
                         var notSet = false

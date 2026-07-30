@@ -7,7 +7,6 @@ import TelegramPresentationData
 import AccountContext
 import ContextUI
 import TelegramCore
-import Postbox
 import TextFormat
 import ReactionSelectionNode
 import ViewControllerComponent
@@ -50,6 +49,33 @@ public protocol ChatSendMessageContextScreenMediaPreview: AnyObject {
     func update(containerSize: CGSize, transition: ComponentTransition) -> CGSize
 }
 
+public protocol ChatSendMessageContextScreenRichTextPreview: AnyObject {
+    var view: UIView { get }
+    // Lays out the rich content for the given bubble width and theme, returning its content
+    // size. Called every layout pass; the implementation memoizes internally.
+    func update(boundingWidth: CGFloat, presentationData: PresentationData, transition: ComponentTransition) -> CGSize
+}
+
+public protocol ChatSendMessageContextScreenTextInputSource: AnyObject {
+    // The live editor view — used only for frame conversion and to hide the real text
+    // during the morph. (`UIView`, not a UITextView, so any backend qualifies.)
+    var sourceView: UIView { get }
+    var attributedText: NSAttributedString? { get }
+    var defaultTextContainerInset: UIEdgeInsets { get }
+    var contentOffset: CGPoint { get }
+    var currentRightInset: CGFloat { get }
+    var quoteLineStyle: ChatInputTextView.Theme.Quote.LineStyle? { get }
+}
+
+// Declared here (not in ChatInputTextNode) because ChatSendMessageActionUI imports
+// ChatInputTextNode — the reverse would cycle. ChatInputTextView already has every member.
+extension ChatInputTextView: ChatSendMessageContextScreenTextInputSource {
+    public var sourceView: UIView { return self }
+    public var quoteLineStyle: ChatInputTextView.Theme.Quote.LineStyle? {
+        return self.theme?.quote.lineStyle
+    }
+}
+
 final class ChatSendMessageContextScreenComponent: Component {
     typealias EnvironmentType = ViewControllerComponentContainer.Environment
     
@@ -62,7 +88,7 @@ final class ChatSendMessageContextScreenComponent: Component {
     let hasEntityKeyboard: Bool
     let gesture: ContextGesture?
     let sourceSendButton: UIView
-    let textInputView: UITextView?
+    let textInputSource: ChatSendMessageContextScreenTextInputSource?
     let emojiViewProvider: ((ChatTextInputTextCustomEmojiAttribute) -> UIView)?
     let wallpaperBackgroundNode: WallpaperBackgroundNode?
     let completion: () -> Void
@@ -73,6 +99,7 @@ final class ChatSendMessageContextScreenComponent: Component {
     let reactionItems: [ReactionItem]?
     let availableMessageEffects: AvailableMessageEffects?
     let isPremium: Bool
+    let richTextPreview: ChatSendMessageContextScreenRichTextPreview?
     // MARK: Swiftgram
     init(
         sgTranslationContext: (outgoingMessageTranslateToLang: String?, translate: (() -> Void)?, changeTranslationLanguage: (() -> ())?) = (outgoingMessageTranslateToLang: nil, translate: nil, changeTranslationLanguage: nil),
@@ -84,7 +111,7 @@ final class ChatSendMessageContextScreenComponent: Component {
         hasEntityKeyboard: Bool,
         gesture: ContextGesture?,
         sourceSendButton: UIView,
-        textInputView: UITextView?,
+        textInputSource: ChatSendMessageContextScreenTextInputSource?,
         emojiViewProvider: ((ChatTextInputTextCustomEmojiAttribute) -> UIView)?,
         wallpaperBackgroundNode: WallpaperBackgroundNode?,
         completion: @escaping () -> Void,
@@ -94,7 +121,8 @@ final class ChatSendMessageContextScreenComponent: Component {
         openPremiumPaywall: @escaping (ViewController) -> Void,
         reactionItems: [ReactionItem]?,
         availableMessageEffects: AvailableMessageEffects?,
-        isPremium: Bool
+        isPremium: Bool,
+        richTextPreview: ChatSendMessageContextScreenRichTextPreview? = nil
     ) {
         self.sgTranslationContext = sgTranslationContext
         self.initialData = initialData
@@ -105,7 +133,7 @@ final class ChatSendMessageContextScreenComponent: Component {
         self.hasEntityKeyboard = hasEntityKeyboard
         self.gesture = gesture
         self.sourceSendButton = sourceSendButton
-        self.textInputView = textInputView
+        self.textInputSource = textInputSource
         self.emojiViewProvider = emojiViewProvider
         self.wallpaperBackgroundNode = wallpaperBackgroundNode
         self.completion = completion
@@ -116,6 +144,7 @@ final class ChatSendMessageContextScreenComponent: Component {
         self.reactionItems = reactionItems
         self.availableMessageEffects = availableMessageEffects
         self.isPremium = isPremium
+        self.richTextPreview = richTextPreview
     }
 
     static func ==(lhs: ChatSendMessageContextScreenComponent, rhs: ChatSendMessageContextScreenComponent) -> Bool {
@@ -392,7 +421,7 @@ final class ChatSendMessageContextScreenComponent: Component {
             var isMessageVisible: Bool = mediaPreview != nil
             
             let textString: NSAttributedString
-            if let attributedText = component.textInputView?.attributedText {
+            if let attributedText = component.textInputSource?.attributedText {
                 textString = attributedText
                 if textString.length != 0 {
                     isMessageVisible = true
@@ -811,8 +840,8 @@ final class ChatSendMessageContextScreenComponent: Component {
             }
             
             let localSourceTextInputViewFrame: CGRect
-            if let textInputView = component.textInputView {
-                localSourceTextInputViewFrame = convertFrame(textInputView.bounds, from: textInputView, to: self)
+            if let textInputSource = component.textInputSource {
+                localSourceTextInputViewFrame = convertFrame(textInputSource.sourceView.bounds, from: textInputSource.sourceView, to: self)
             } else {
                 localSourceTextInputViewFrame = convertFrame(component.sourceSendButton.bounds, from: component.sourceSendButton, to: self)
             }
@@ -851,19 +880,35 @@ final class ChatSendMessageContextScreenComponent: Component {
             if case .editMessage = component.params {
                 isEditMessage = true
             }
-            
+
+            // The bubble's right edge is pinned to the send button (see readyMessageItemFrame).
+            // Constrain the rich layout to the span between that edge and a fixed left margin
+            // (independent of where the source text input sits) so it isn't laid out at the
+            // full container width.
+            let richSendButtonWidth: CGFloat
+            if component.sourceSendButton is ContextExtractedContentContainingView {
+                richSendButtonWidth = sourceSendButtonFrame.width
+            } else {
+                richSendButtonWidth = min(sourceSendButtonFrame.width, 40.0)
+            }
+            let richBubbleRightEdge = sourceSendButtonFrame.maxX - richSendButtonWidth
+            let richBubbleLeftMargin: CGFloat = 16.0
+            let maxRichBubbleWidth = max(1.0, min(messageItemViewContainerSize.width, richBubbleRightEdge - richBubbleLeftMargin))
+
             let messageItemSize = messageItemView.update(
                 context: component.context,
                 presentationData: presentationData,
                 backgroundNode: wallpaperBackgroundNode,
                 textString: textString,
-                sourceTextInputView: component.textInputView as? ChatInputTextView,
+                richTextPreview: component.richTextPreview,
+                maxRichBubbleWidth: maxRichBubbleWidth,
+                textInputSource: component.textInputSource,
                 emojiViewProvider: component.emojiViewProvider,
                 sourceMediaPreview: mediaPreview,
                 mediaCaptionIsAbove: self.mediaCaptionIsAbove,
                 textInsets: messageTextInsets,
                 explicitBackgroundSize: explicitMessageBackgroundSize,
-                maxTextWidth: localSourceTextInputViewFrame.width,
+                maxTextWidth: component.richTextPreview != nil ? maxRichBubbleWidth : localSourceTextInputViewFrame.width,
                 maxTextHeight: 20000.0,
                 containerSize: messageItemViewContainerSize,
                 effect: self.presentationAnimationState.key == .animatedIn ? self.selectedMessageEffect : nil,
@@ -1045,7 +1090,7 @@ final class ChatSendMessageContextScreenComponent: Component {
                                 })
                             }
                             
-                            var customEffectResource: (FileMediaReference, MediaResource)?
+                            var customEffectResource: (FileMediaReference, TelegramMediaResource)?
                             if let effectAnimation = messageEffect.effectAnimation?._parse() {
                                 customEffectResource = (FileMediaReference.standalone(media: effectAnimation), effectAnimation.resource)
                             } else {
@@ -1063,7 +1108,7 @@ final class ChatSendMessageContextScreenComponent: Component {
                             loadEffectAnimationSignal = Signal { subscriber in
                                 let fetchDisposable = freeMediaFileResourceInteractiveFetched(account: context.account, userLocation: .other, fileReference: customEffectResourceFileReference, resource: customEffectResource).start()
                                 
-                                let dataDisposabke = (context.account.postbox.mediaBox.resourceStatus(customEffectResource)
+                                let dataDisposabke = (context.engine.resources.status(resource: EngineMediaResource(customEffectResource))
                                 |> filter { status in
                                     if status == .Local {
                                         return true
@@ -1126,7 +1171,7 @@ final class ChatSendMessageContextScreenComponent: Component {
                                 standaloneReactionAnimation.updateLayout(size: effectFrame.size)
                                 self.addSubnode(standaloneReactionAnimation)
                                 
-                                let pathPrefix = component.context.account.postbox.mediaBox.shortLivedResourceCachePathPrefix(customEffectResource.id)
+                                let pathPrefix = component.context.engine.resources.shortLivedResourceCachePathPrefix(id: EngineMediaResource.Id(customEffectResource.id))
                                 let source = AnimatedStickerResourceSource(account: component.context.account, resource: customEffectResource, fitzModifier: nil)
                                 standaloneReactionAnimation.setup(source: source, width: Int(effectSize.width * effectiveScale), height: Int(effectSize.height * effectiveScale), playbackMode: .once, mode: .direct(cachePathPrefix: pathPrefix))
                                 standaloneReactionAnimation.completed = { [weak self, weak standaloneReactionAnimation] _ in
@@ -1328,7 +1373,7 @@ final class ChatSendMessageContextScreenComponent: Component {
                     actionsStackNode.layer.animateSpring(from: 0.001 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: 0.42, damping: 104.0)
                     
                     messageItemView.animateIn(
-                        sourceTextInputView: component.textInputView as? ChatInputTextView,
+                        textInputSource: component.textInputSource,
                         isEditMessage: isEditMessage,
                         transition: transition
                     )
@@ -1337,7 +1382,7 @@ final class ChatSendMessageContextScreenComponent: Component {
                     transition.setScale(view: actionsStackNode.view, scale: 0.001)
                     
                     messageItemView.animateOut(
-                        sourceTextInputView: component.textInputView as? ChatInputTextView,
+                        textInputSource: component.textInputSource,
                         toEmpty: self.animateOutToEmpty,
                         isEditMessage: isEditMessage,
                         transition: transition
@@ -1439,14 +1484,14 @@ final class ChatSendMessageContextScreenComponent: Component {
                                     return
                                 }
                                 if mediaPreview == nil {
-                                    component.textInputView?.isHidden = true
+                                    component.textInputSource?.sourceView.isHidden = true
                                 }
                                 component.sourceSendButton.isHidden = true
                             })
                         }
                     } else {
                         if mediaPreview == nil {
-                            component.textInputView?.isHidden = true
+                            component.textInputSource?.sourceView.isHidden = true
                         }
                         component.sourceSendButton.isHidden = true
                     }
@@ -1458,7 +1503,7 @@ final class ChatSendMessageContextScreenComponent: Component {
                 
                 if self.animateOutToEmpty {
                     if mediaPreview == nil {
-                        component.textInputView?.isHidden = false
+                        component.textInputSource?.sourceView.isHidden = false
                     }
                     component.sourceSendButton.isHidden = false
                     
@@ -1480,7 +1525,7 @@ final class ChatSendMessageContextScreenComponent: Component {
                         self.performedActionsOnAnimateOut = true
                         if let component = self.component, !self.animateOutToEmpty {
                             if mediaPreview == nil {
-                                component.textInputView?.isHidden = false
+                                component.textInputSource?.sourceView.isHidden = false
                             }
                             component.sourceSendButton.isHidden = false
                         }
@@ -1536,7 +1581,7 @@ public class ChatSendMessageContextScreen: ViewControllerComponentContainer, Cha
         hasEntityKeyboard: Bool,
         gesture: ContextGesture?,
         sourceSendButton: UIView,
-        textInputView: UITextView?,
+        textInputSource: ChatSendMessageContextScreenTextInputSource?,
         emojiViewProvider: ((ChatTextInputTextCustomEmojiAttribute) -> UIView)?,
         wallpaperBackgroundNode: WallpaperBackgroundNode?,
         completion: @escaping () -> Void,
@@ -1546,10 +1591,11 @@ public class ChatSendMessageContextScreen: ViewControllerComponentContainer, Cha
         openPremiumPaywall: @escaping (ViewController) -> Void,
         reactionItems: [ReactionItem]?,
         availableMessageEffects: AvailableMessageEffects?,
-        isPremium: Bool
+        isPremium: Bool,
+        richTextPreview: ChatSendMessageContextScreenRichTextPreview? = nil
     ) {
         self.context = context
-        
+
         super.init(
             context: context,
             component: ChatSendMessageContextScreenComponent(
@@ -1562,7 +1608,7 @@ public class ChatSendMessageContextScreen: ViewControllerComponentContainer, Cha
                 hasEntityKeyboard: hasEntityKeyboard,
                 gesture: gesture,
                 sourceSendButton: sourceSendButton,
-                textInputView: textInputView,
+                textInputSource: textInputSource,
                 emojiViewProvider: emojiViewProvider,
                 wallpaperBackgroundNode: wallpaperBackgroundNode,
                 completion: completion,
@@ -1572,7 +1618,8 @@ public class ChatSendMessageContextScreen: ViewControllerComponentContainer, Cha
                 openPremiumPaywall: openPremiumPaywall,
                 reactionItems: reactionItems,
                 availableMessageEffects: availableMessageEffects,
-                isPremium: isPremium
+                isPremium: isPremium,
+                richTextPreview: richTextPreview
             ),
             navigationBarAppearance: .none,
             statusBarStyle: .none,

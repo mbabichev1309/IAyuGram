@@ -84,9 +84,14 @@ xcode-files
 .bsp/**
 .sourcekit-lsp/**
 /.claude/
+**/.claude/settings.local.json
+**/.vscode/launch.json
 /buildbox/*
 
 # Personal build configuration with secrets — DO NOT COMMIT
 build-system/development_configuration.json
 build-system/personal_*.json
 .bazelrc.user
+**/node_modules/
+tools/sim-watcher/dist/
+.mcp.json

@@ -15,7 +15,6 @@ swift_library(
     ],
     deps = sgdeps + [
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
-        "//submodules/Postbox:Postbox",
         "//submodules/TelegramCore:TelegramCore",
         "//submodules/ImageCompression:ImageCompression",
         "//submodules/PersistentStringHash:PersistentStringHash",
