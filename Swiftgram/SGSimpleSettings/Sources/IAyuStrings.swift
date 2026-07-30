@@ -80,6 +80,9 @@ public enum IAyuStringKey: String, CaseIterable {
     // Home-screen quick action
     case shortcutGhostTitle
     case shortcutGhostSubtitle
+
+    // My Profile header
+    case myProfileStatusGhost
 }
 
 public final class IAyuStrings {
@@ -147,7 +150,9 @@ public final class IAyuStrings {
         .mediaSkippedNote: "[{kind}, {size} MB — not downloaded]",
 
         .shortcutGhostTitle: "Ghost mode",
-        .shortcutGhostSubtitle: "Enter with all signals hidden"
+        .shortcutGhostSubtitle: "Enter with all signals hidden",
+
+        .myProfileStatusGhost: "Offline (ghost mode)"
     ]
 
     /// Human-readable grouping for the Localization screen, in display order.
@@ -169,7 +174,8 @@ public final class IAyuStrings {
                           .editHistoryPreviousHeaderWithBadge, .editHistoryCurrentHeader]),
         ("PRESERVED MEDIA", [.mediaPhoto, .mediaVideo, .mediaVoice, .mediaRound, .mediaAudio,
                              .mediaGif, .mediaFile, .mediaGeneric, .mediaSkippedNote]),
-        ("QUICK ACTION", [.shortcutGhostTitle, .shortcutGhostSubtitle])
+        ("QUICK ACTION", [.shortcutGhostTitle, .shortcutGhostSubtitle]),
+        ("MY PROFILE", [.myProfileStatusGhost])
     ]
 
     /// Short label naming the key on the Localization screen (the row's own title).
@@ -228,6 +234,7 @@ public final class IAyuStrings {
         case .mediaSkippedNote: return "Skipped note"
         case .shortcutGhostTitle: return "Title"
         case .shortcutGhostSubtitle: return "Subtitle"
+        case .myProfileStatusGhost: return "Ghost status"
         }
     }
 
