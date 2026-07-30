@@ -61,8 +61,6 @@ public enum IAyuStringKey: String, CaseIterable {
     case connectionStatusDisconnected
     case connectionStatusInvalidURL
     case connectionEventNoContent
-    case diagnosticsHeader
-    case diagnosticsInlineBots
 
     // Edit history
     case editHistoryMenuItem
@@ -140,8 +138,6 @@ public final class IAyuStrings {
         .connectionStatusDisconnected: "Live: disconnected — {error}",
         .connectionStatusInvalidURL: "Live: invalid URL",
         .connectionEventNoContent: "<no content>",
-        .diagnosticsHeader: "DIAGNOSTICS",
-        .diagnosticsInlineBots: "Check inline bots (@)",
 
         .editHistoryMenuItem: "Edit history",
         .editHistoryTitle: "Edit history",
@@ -180,7 +176,7 @@ public final class IAyuStrings {
                         .connectionConnect, .connectionLiveHeader, .connectionStatusConnecting,
                         .connectionStatusConnected, .connectionStatusFailed,
                         .connectionStatusDisconnected, .connectionStatusInvalidURL,
-                        .connectionEventNoContent, .diagnosticsHeader, .diagnosticsInlineBots]),
+                        .connectionEventNoContent]),
         ("EDIT HISTORY", [.editHistoryMenuItem, .editHistoryTitle, .editHistoryPreviousHeader,
                           .editHistoryPreviousHeaderWithBadge, .editHistoryCurrentHeader]),
         ("PRESERVED MEDIA", [.mediaPhoto, .mediaVideo, .mediaVoice, .mediaRound, .mediaAudio,
@@ -232,8 +228,6 @@ public final class IAyuStrings {
         case .connectionStatusDisconnected: return "Disconnected"
         case .connectionStatusInvalidURL: return "Invalid URL"
         case .connectionEventNoContent: return "No content"
-        case .diagnosticsHeader: return "Diagnostics header"
-        case .diagnosticsInlineBots: return "Inline bots check"
         case .editHistoryMenuItem: return "Menu item"
         case .editHistoryTitle: return "Title"
         case .editHistoryPreviousHeader: return "Previous header"
