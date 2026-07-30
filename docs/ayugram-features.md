@@ -89,7 +89,254 @@ networks (AyuGram warns the same).
 
 ---
 
+## Delivery architecture — companion capture server (READ FIRST for class B)
+
+> **This section supersedes the on-device delivery mechanism for class B
+> (deletions, edits, media, view-once).** The Postbox seams documented in
+> §§2–4 remain valid as *materialization / rendering* mechanics, but the
+> **capture** of destructive events no longer happens on the phone — it
+> happens on an always-on companion server. Read this before implementing
+> §§2–4.
+
+### A. Why the phone cannot capture reliably (the iOS constraint)
+
+Deleted/edited events arrive as MTProto updates (`updateDeleteMessages`,
+`updateEditMessage`) that are only processed while a **live session is
+running**. On iOS the app is suspended/killed in the background, so:
+
+- **Mute is server-side** — the server decides whether to send a push at all;
+  the client cannot influence it.
+- **Push is server-driven** — Telegram's server emits the APNs push; the NSE
+  only *decrypts* it. We cannot force iOS to wake the NSE, and muted chats get
+  no push, so there is no background wake for them.
+- **Abusing background modes** (location / VoIP "call" keep-alive) drains
+  battery, is fragile, and gets the app rejected/killed by Apple — dead end.
+- A Telegram-app crash resets any in-app capture state.
+
+Conclusion: the "message received *and* deleted while the app was fully
+closed" case (scenario C below) is **unsolvable on-device**. The fix is to
+move capture off the phone entirely.
+
+### B. Topology — an always-on second session
+
+The companion server is a **second authorized session of the user's own
+account** (a userbot on the same phone number — *not* a separate bot account,
+which would only see chats it joined). Being a full MTProto client, it can
+itself run Ghost Mode (suppress read/consume), so it captures view-once /
+self-destruct media **without notifying the sender**.
+
+```
+            updateNewMessage / updateDeleteMessages / updateEditMessage
+   ┌──────────────────┐  (live, always-on — sees EVERYTHING the account sees)
+   │  Telegram DC      │◀────────────────────────────────────────────┐
+   └──────────────────┘                                               │
+        ▲   │ normal sync (pts/difference, APNs push)                 │
+        │   ▼                                                          │
+   ┌──────────────────┐                          ┌────────────────────┴───────┐
+   │  iOS client       │                          │  Companion server           │
+   │  (this fork)      │                          │  (VPS or home PC)           │
+   │                   │                          │  · 2nd session, Ghost-on    │
+   │  · Postbox (norm. │   WebSocket push +       │  · content store (rolling,  │
+   │    messages)      │◀──── gap-sync REST ─────▶│    ayudata.db-analog)       │
+   │  · overlay render │   (events since cursor)  │  · append-only event log    │
+   └──────────────────┘                          └─────────────────────────────┘
+```
+
+**Key invariant:** the server is an independent session, so it receives every
+update **even while the phone is open**. → *The server is the single
+authoritative, complete source of destructive events.* Any on-device capture
+(the §2 Postbox seam) is only a latency optimization layered on top, never the
+source of truth. For v1 we skip the on-device seam entirely.
+
+### C. Server-side data model
+
+The delete update carries **only message IDs, not content** — so to know *what*
+a deleted message contained, the server must have stored it when it first
+arrived (same reason AyuGram Desktop needs `ayudata.db`; here it stays
+server-side, the phone never pulls the full history).
+
+- **Content store** — rolling copy of messages the account has seen
+  (`peerId, msgId → {text, media refs, date, author, …}`). Retention policy
+  configurable.
+- **Event log** — append-only, monotonic cursor per account:
+  `{seq, peerId, msgId, type: deleted|edited|viewOnceCaptured, payload}`.
+  `payload` for `edited` = prior `{text,date}`; for `deleted` = a snapshot ref
+  into the content store; for `viewOnceCaptured` = stored media ref.
+
+### D. Client sync + materialization
+
+Rendering reads **only Postbox** — it never cares who captured the event. The
+client keeps a `lastServerCursor`. Two triggers pull events:
+
+1. **On launch / foreground** — REST: "give me events after `lastServerCursor`
+   for my peers" → gap-fill.
+2. **While open** — WebSocket push → near-real-time (replaces the need for an
+   on-device seam in v1).
+
+For each event the client **materializes** into Postbox:
+
+- **Message exists in Postbox** (scenarios A/B — phone saw it once) → attach
+  `LocalMessageDeletedAttribute` / append `LocalMessageEditHistoryAttribute`
+  (the §2/§2.3 mechanics).
+- **Message absent** (scenario C — arrived *and* deleted while phone was off) →
+  **insert a synthetic `StoreMessage` from the server's content snapshot, then
+  mark it deleted.** ⚠️ This synthetic row **must be flagged local-only** so
+  Telegram's `pts`/`difference` reconciliation never tries to fetch, dedupe, or
+  overwrite it. This is the one genuinely delicate seam of the whole design.
+
+### E. Sequence — the three scenarios + view-once
+
+```mermaid
+sequenceDiagram
+    participant TG as Telegram DC
+    participant S as Companion server
+    participant C as iOS client (Postbox)
+
+    Note over S: always-on, Ghost-on, 2nd session
+
+    rect rgb(235,245,255)
+    Note over TG,C: Scenario A — delete while phone OPEN
+    TG->>S: updateDeleteMessages(ids)
+    TG->>C: updateDeleteMessages(ids) (live)
+    S->>S: log event (authoritative)
+    S-->>C: WebSocket push {deleted, peer, id, snapshot}
+    C->>C: msg exists → mark LocalMessageDeletedAttribute
+    end
+
+    rect rgb(235,255,240)
+    Note over TG,C: Scenario B — deleted while phone CLOSED, msg was seen before
+    TG->>S: updateDeleteMessages(ids)
+    S->>S: log event
+    Note over C: phone launches later
+    C->>S: GET events since cursor N
+    S-->>C: [{deleted, peer, id, snapshot}]
+    C->>C: msg exists in Postbox → mark deleted
+    end
+
+    rect rgb(255,245,235)
+    Note over TG,C: Scenario C — arrived AND deleted while phone CLOSED
+    TG->>S: updateNewMessage(msg)
+    S->>S: store content
+    TG->>S: updateDeleteMessages(ids)
+    S->>S: log event (+ content snapshot)
+    Note over C: phone launches later
+    C->>S: GET events since cursor N
+    S-->>C: [{deleted, peer, id, FULL snapshot}]
+    C->>C: msg ABSENT → insert synthetic StoreMessage (local-only) then mark deleted
+    end
+
+    rect rgb(250,240,255)
+    Note over TG,C: View-once / self-destruct preview
+    TG->>S: updateNewMessage(view-once media)
+    S->>S: Ghost-consume (no read receipt) + download bytes
+    S->>S: log viewOnceCaptured + store media
+    C->>S: GET events / fetch media
+    S-->>C: media bytes
+    C->>C: render preserved copy (sender not notified)
+    end
+```
+
+### F. Division of responsibility
+
+| Feature | Where |
+|---|---|
+| Ghost (online/typing/read/consume, invisible send) | **client** (existing seams §1) |
+| Capture of deletions / edits / view-once | **server** (authoritative) |
+| Content retention (to resolve deletes) | **server** (rolling store) |
+| Media download-before-expiry | **server** (has time/bandwidth; NSE cannot) |
+| Materialization into Postbox + rendering | **client** (§D; §2.4 rendering) |
+| On-device foreground capture (Postbox seam §2.2) | **optional later optimization**, not v1 |
+
+### G. Open decisions (block server spec)
+
+1. **Host:** home PC (free; downtime = capture gaps, NAT/dynamic IP) **vs**
+   VPS (~$5/mo, always-on, static IP but datacenter-IP logins are more likely
+   to trip Telegram's session-security flags).
+2. **Stack:** Telethon / Pyrogram (Python — native `on_deleted_messages` /
+   `on_edited_message`, fastest to prototype) **vs** TDLib (C++, heavier).
+3. **Client↔server protocol:** REST for gap-sync + WebSocket for live push;
+   auth via a pairing token.
+4. **ToS/trust:** an automated 2nd session capturing view-once is a grey area
+   (same as AyuGram); the user's account, the user's risk. Deleted-message
+   content now lives on an external server → encrypt at rest, decide the trust
+   boundary (personal use = acceptable).
+
+### H. Update capture mechanics — how the server "listens"
+
+> **Not packet sniffing.** MTProto transport is encrypted with the session
+> `auth_key`; there is nothing to sniff. The server receives events as a
+> **legitimate authorized client** via the MTProto *Updates* stream — i.e. it
+> *subscribes* to updates, exactly like every anti-delete bot does. "Listening"
+> = keeping a live update loop running, not intercepting traffic.
+
+**The Updates mechanism:**
+
+1. After login the client holds a **persistent TCP connection** to a DC.
+2. Telegram **pushes `Updates` objects** over it: `updateNewMessage`,
+   `updateDeleteMessages`, `updateEditMessage`, plus channel variants
+   `updateNewChannelMessage` / `updateDeleteChannelMessages` /
+   `updateEditChannelMessage`.
+3. Integrity is tracked by **`pts` / `qts` / `seq` / `date`**; updates carry
+   `pts` + `pts_count` and must be applied in order.
+4. On a gap (reconnect / prior downtime) the client calls
+   **`updates.getDifference`** (common box) and **`updates.getChannelDifference`**
+   (per channel) to catch up — this is the server-side "gap-sync".
+
+Two independent boxes matter to us:
+- **DMs / basic groups** → deletions arrive as `updateDeleteMessages` (common pts).
+- **Channels / supergroups** → `updateDeleteChannelMessages` (per-channel pts).
+
+**⚠️ Caveat 1 — a delete update carries only message IDs, no content.** To know
+*what* a deleted message was, the server must have stored it on arrival
+(`on_message` → content store). This is *the* reason the rolling content store
+(§C) is mandatory, not optional.
+
+**⚠️ Caveat 2 — long downtime loses explicit deletes.** After a long offline
+window `getDifference` / `getChannelDifference` may return
+**`differenceTooLong` / `channelDifferenceTooLong`**: Telegram then does NOT
+replay each delete — it just hands a new `pts` + a current slice. Deletions that
+happened during the gap arrive as **no event at all**; the only way to detect
+them is to **diff the stored ID set against the refetched slice** and compute
+"missing" (extra reconciliation logic). → **Server uptime is critical**: short
+reconnects are handled by the library's `getDifference`; multi-hour downtime =
+a capture hole. This is a concrete argument for a VPS over a home PC.
+
+**Per-stack:**
+
+- **Pyrogram** — `@on_message` (cache content), `@on_deleted_messages`
+  (gives Message objs = essentially `id` + `chat`, no content → look up in your
+  store), `@on_edited_message`.
+- **Telethon** — `events.NewMessage` / `events.MessageDeleted` /
+  `events.MessageEdited`. Nuance: `MessageDeleted` sometimes has an **unknown
+  `chat_id`** (DMs) → maintain an ID→chat index to resolve it.
+- **TDLib** — `updateNewMessage` / `updateDeleteMessages` (with `is_permanent`)
+  / `updateMessageContent`. Keeps its own DB, gives a bit more, but delete is
+  still just IDs. Heaviest to integrate.
+
+In all three, "listening" = keep the update loop always running; the library
+handles reconnect + `getDifference` (subject to Caveat 2).
+
+**Server hardening checklist:**
+
+- **Persist `pts`/state to disk** so a process restart resumes via
+  `getDifference` instead of starting cold.
+- **`FLOOD_WAIT_x` backoff** when fetching content/media (esp. the
+  download-before-expiry media path).
+- **Session-kill handling** (`AUTH_KEY_UNREGISTERED`) — Telegram may terminate
+  the session (more likely on datacenter IPs) → re-auth flow.
+- **Apply in `pts` order** so a delete never precedes the new-message it refers
+  to on reconnect.
+
+---
+
 ## 2. Message preservation (deleted / edited) — "class B"
+
+> **Delivery note:** capture is handled by the companion server (see
+> *Delivery architecture* above). The mechanics below apply to the
+> **materialization / rendering** step on the client — §2.2's
+> `markMessagesDeletedLocally` is what the client runs when applying a
+> server-pushed event to Postbox, with the scenario-C "insert-then-mark"
+> variant added.
 
 The flagship feature. Preserve messages that the server deletes or edits by
 **not applying the destructive operation** and instead attaching local-only
