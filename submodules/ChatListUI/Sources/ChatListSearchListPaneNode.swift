@@ -4445,11 +4445,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
                     // MARK: Swiftgram
                     // Hidding SwiftgramBot from recents so it won't annoy people. Ideally we should call removeRecentlyUsedApp, so it won't annoy users in other apps
                     let skipId = 5846791198
-                    
-                    // MARK: Swiftgram
-                    // Hidding SwiftgramBot from recents so it won't annoy people. Ideally we should call removeRecentlyUsedApp, so it won't annoy users in other apps
-                    let skipId = 5846791198
-                    
+
                     for id in localApps.peerIds {
                         if id.id._internalGetInt64Value() == skipId {
                             continue
@@ -6241,10 +6237,6 @@ public final class ChatListSearchShimmerNode: ASDisplayNode {
 
                             let dateFrame = itemNode.dateNode.frame.offsetBy(dx: 0.0, dy: currentY)
                             fillLabelPlaceholderRect(origin: CGPoint(x: dateFrame.maxX - 30.0, y: dateFrame.minY), width: 30.0)
-
-                            context.setBlendMode(.normal)
-                            context.setFillColor(presentationData.theme.chatList.itemSeparatorColor.cgColor)
-                            context.fill(itemNode.separatorNode.frame.offsetBy(dx: 0.0, dy: currentY))
 
                             context.setBlendMode(.normal)
                             context.setFillColor(presentationData.theme.chatList.itemSeparatorColor.cgColor)

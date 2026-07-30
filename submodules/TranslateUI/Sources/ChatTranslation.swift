@@ -187,12 +187,6 @@ public func translateMessageIds(context: AccountContext, messageIds: [EngineMess
                         messageIdsSet.insert(messageId)
                         messageDictToTranslate[messageId] = message.text
                     }
-                } else if let _ = message.richText {
-                    if !messageIdsSet.contains(messageId) {
-                        messageIdsToTranslate.append(messageId)
-                        messageIdsSet.insert(messageId)
-                        messageDictToTranslate[messageId] = message.text
-                    }
                 // TODO(swiftgram): Translate polls
                 } else if let _ = message.media.first(where: { $0 is TelegramMediaPoll }), !viaText {
                     if !messageIdsSet.contains(messageId) {

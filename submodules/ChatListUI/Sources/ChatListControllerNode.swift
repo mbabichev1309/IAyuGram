@@ -1975,11 +1975,6 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         if sgShouldDisplayBottomFolders && sgFoldersSize.height > 0.0 {
             insets.bottom += sgFoldersSize.height + 16.0 + 8.0
         }
-
-        // MARK: Swiftgram
-        if sgShouldDisplayBottomFolders && sgFoldersSize.height > 0.0 {
-            insets.bottom += sgFoldersSize.height + 16.0 + 8.0
-        }
         
         var childrenLayout = layout
         childrenLayout.intrinsicInsets = UIEdgeInsets(top: visualNavigationHeight, left: childrenLayout.intrinsicInsets.left, bottom: childrenLayout.intrinsicInsets.bottom, right: childrenLayout.intrinsicInsets.right)
