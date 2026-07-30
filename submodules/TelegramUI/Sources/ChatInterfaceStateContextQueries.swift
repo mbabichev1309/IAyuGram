@@ -160,7 +160,13 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, pee
                 )
                 |> map { inlineBots, peers -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
                     let filteredInlineBots = inlineBots.sorted(by: { $0.1 > $1.1 }).filter { peer, rating in
-                        if rating < 0.14 {
+                        // MARK: IAyuGram — a bare "@" is an explicit request to see the list, so
+                        // don't apply the popularity floor to it. A bot used locally is stored at
+                        // rating >= 1.0 (see _internal_addRecentlyUsedInlineBot), but the top
+                        // inline bots synced from the cloud carry small decayed ratings, and this
+                        // floor dropped them wholesale — so "@" listed bots in an app where you
+                        // had used them and nothing in a fresh install, on the same account.
+                        if rating < 0.14, !normalizedQuery.isEmpty {
                             return false
                         }
                         if peer.indexName.matchesByTokens(normalizedQuery) {
