@@ -336,3 +336,69 @@ func _internal_removeRecentlyUsedApp(account: Account, peerId: PeerId) -> Signal
         }
     } |> switchToLatest
 }
+
+// MARK: IAyuGram — one-tap diagnostic for the "@" inline-bot suggestion list. Asks the
+// server for the bots_inline top-peer category and reports what we actually stored, so an
+// empty suggestion list can be pinned on the server (category switched off in privacy
+// settings), on the sync task, or on the UI, instead of guessed at.
+public func iAyuDiagnoseInlineBots(account: Account) -> Signal<String, NoError> {
+    let remote: Signal<String, NoError> = account.network.request(Api.functions.contacts.getTopPeers(flags: 1 << 2, offset: 0, limit: 16, hash: 0))
+    |> map { result -> String in
+        switch result {
+        case .topPeersDisabled:
+            return "server: category disabled"
+        case .topPeersNotModified:
+            return "server: not modified"
+        case let .topPeers(topPeersData):
+            var count = 0
+            var ratings: [String] = []
+            for category in topPeersData.categories {
+                if case let .topPeerCategoryPeers(categoryData) = category {
+                    for topPeer in categoryData.peers {
+                        if case let .topPeer(topPeerData) = topPeer {
+                            count += 1
+                            if ratings.count < 6 {
+                                ratings.append(String(format: "%.3f", topPeerData.rating))
+                            }
+                        }
+                    }
+                }
+            }
+            if count == 0 {
+                return "server: 0 bots"
+            }
+            return "server: \(count) bots, ratings \(ratings.joined(separator: " "))"
+        }
+    }
+    |> `catch` { _ -> Signal<String, NoError> in
+        // Deliberately not unpacking MTRpcError here: this module doesn't import MtProtoKit
+        // and the distinction that matters is request-failed vs disabled vs empty.
+        return .single("server: request failed")
+    }
+
+    let local: Signal<String, NoError> = account.postbox.transaction { transaction -> String in
+        var entries: [String] = []
+        for entry in transaction.getOrderedListItems(collectionId: Namespaces.OrderedItemList.CloudRecentInlineBots) {
+            let peerId = RecentPeerItemId(entry.id).peerId
+            let rating = entry.contents.get(RecentPeerItem.self)?.rating ?? -1.0
+            let name: String
+            if let peer = transaction.getPeer(peerId), let addressName = peer.addressName, !addressName.isEmpty {
+                name = "@\(addressName)"
+            } else if transaction.getPeer(peerId) == nil {
+                name = "<peer missing>"
+            } else {
+                name = "<no username>"
+            }
+            entries.append("\(name) \(String(format: "%.3f", rating))")
+        }
+        if entries.isEmpty {
+            return "local: empty"
+        }
+        return "local: \(entries.count) — \(entries.prefix(6).joined(separator: ", "))"
+    }
+
+    return combineLatest(remote, local)
+    |> map { remote, local in
+        return "\(remote)\n\(local)"
+    }
+}
