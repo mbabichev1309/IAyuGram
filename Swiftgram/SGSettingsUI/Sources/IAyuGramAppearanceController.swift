@@ -49,19 +49,22 @@ private final class IAyuAppearanceArguments {
     let toggleTintDeleted: (Bool) -> Void
     let pickTintColor: () -> Void
     let toggleShowDates: (Bool) -> Void
+    let toggleVoiceElapsed: (Bool) -> Void
 
-    init(updateDeletedBadge: @escaping (String) -> Void, updateEditedBadge: @escaping (String) -> Void, toggleTintDeleted: @escaping (Bool) -> Void, pickTintColor: @escaping () -> Void, toggleShowDates: @escaping (Bool) -> Void) {
+    init(updateDeletedBadge: @escaping (String) -> Void, updateEditedBadge: @escaping (String) -> Void, toggleTintDeleted: @escaping (Bool) -> Void, pickTintColor: @escaping () -> Void, toggleShowDates: @escaping (Bool) -> Void, toggleVoiceElapsed: @escaping (Bool) -> Void) {
         self.updateDeletedBadge = updateDeletedBadge
         self.updateEditedBadge = updateEditedBadge
         self.toggleTintDeleted = toggleTintDeleted
         self.pickTintColor = pickTintColor
         self.toggleShowDates = toggleShowDates
+        self.toggleVoiceElapsed = toggleVoiceElapsed
     }
 }
 
 private enum IAyuAppearanceSection: Int32 {
     case badges
     case editHistory
+    case playback
 }
 
 private enum IAyuAppearanceEntry: ItemListNodeEntry {
@@ -73,6 +76,9 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
     case tintColor(String, Int32)
     case editHistoryHeader(String)
     case showDates(String, Bool)
+    case playbackHeader(String)
+    case voiceElapsed(String, Bool)
+    case playbackInfo(String)
 
     var section: ItemListSectionId {
         switch self {
@@ -80,6 +86,8 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
             return IAyuAppearanceSection.badges.rawValue
         case .editHistoryHeader, .showDates:
             return IAyuAppearanceSection.editHistory.rawValue
+        case .playbackHeader, .voiceElapsed, .playbackInfo:
+            return IAyuAppearanceSection.playback.rawValue
         }
     }
 
@@ -93,6 +101,9 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
         case .tintColor: return 5
         case .editHistoryHeader: return 6
         case .showDates: return 7
+        case .playbackHeader: return 8
+        case .voiceElapsed: return 9
+        case .playbackInfo: return 10
         }
     }
 
@@ -118,6 +129,12 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
             return a == b
         case let (.showDates(a1, a2), .showDates(b1, b2)):
             return a1 == b1 && a2 == b2
+        case let (.playbackHeader(a), .playbackHeader(b)):
+            return a == b
+        case let (.voiceElapsed(a1, a2), .voiceElapsed(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.playbackInfo(a), .playbackInfo(b)):
+            return a == b
         default:
             return false
         }
@@ -152,6 +169,14 @@ private enum IAyuAppearanceEntry: ItemListNodeEntry {
             return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleShowDates(newValue)
             })
+        case let .playbackHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .voiceElapsed(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleVoiceElapsed(newValue)
+            })
+        case let .playbackInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         }
     }
 }
@@ -162,6 +187,7 @@ private struct IAyuAppearanceState: Equatable {
     var tintDeleted: Bool
     var tintColorRGB: Int32
     var showDates: Bool
+    var voiceElapsed: Bool
 }
 
 public func iAyuGramAppearanceController(context: AccountContext) -> ViewController {
@@ -170,7 +196,8 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
         editedBadge: SGSimpleSettings.shared.iaEditedBadge,
         tintDeleted: SGSimpleSettings.shared.iaTintDeleted,
         tintColorRGB: SGSimpleSettings.shared.iaTintColorRGB,
-        showDates: SGSimpleSettings.shared.iaEditHistoryShowDates
+        showDates: SGSimpleSettings.shared.iaEditHistoryShowDates,
+        voiceElapsed: SGSimpleSettings.shared.iaVoiceElapsedTime
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -228,6 +255,13 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
             state.showDates = value
             return state
         }
+    }, toggleVoiceElapsed: { value in
+        SGSimpleSettings.shared.iaVoiceElapsedTime = value
+        updateState { state in
+            var state = state
+            state.voiceElapsed = value
+            return state
+        }
     })
 
     let signal = combineLatest(statePromise.get(), context.sharedContext.presentationData)
@@ -241,6 +275,9 @@ public func iAyuGramAppearanceController(context: AccountContext) -> ViewControl
         entries.append(.tintColor(IAyuStrings.text(.appearanceTintColor), state.tintColorRGB))
         entries.append(.editHistoryHeader(IAyuStrings.text(.appearanceEditHistoryHeader)))
         entries.append(.showDates(IAyuStrings.text(.appearanceShowDates), state.showDates))
+        entries.append(.playbackHeader(IAyuStrings.text(.appearancePlaybackHeader)))
+        entries.append(.voiceElapsed(IAyuStrings.text(.appearanceVoiceElapsed), state.voiceElapsed))
+        entries.append(.playbackInfo(IAyuStrings.text(.appearancePlaybackInfo)))
 
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(IAyuStrings.text(.appearanceTitle)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)

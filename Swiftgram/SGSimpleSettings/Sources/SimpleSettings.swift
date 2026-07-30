@@ -113,6 +113,7 @@ public class SGSimpleSettings {
         case iaGhostHideTyping
         case iaGhostHideConsumed
         case iaGhostInvisibleSend
+        case iaVoiceElapsedTime
         case bottomTabStyle
         case rememberLastFolder
         case lastAccountFolders
@@ -286,6 +287,7 @@ public class SGSimpleSettings {
         Keys.iaGhostHideTyping.rawValue: false,
         Keys.iaGhostHideConsumed.rawValue: false,
         Keys.iaGhostInvisibleSend.rawValue: false,
+        Keys.iaVoiceElapsedTime.rawValue: true,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
         Keys.lastAccountFolders.rawValue: [:],
@@ -439,7 +441,13 @@ public class SGSimpleSettings {
     // you online. Off by default — it delays your messages. See EnqueueMessage.
     @UserDefault(key: Keys.iaGhostInvisibleSend.rawValue)
     public var iaGhostInvisibleSend: Bool
-    
+
+    // IAyuGram: count a playing voice message UP (time elapsed) instead of down
+    // (time remaining, which is what stock does). Round videos already count up,
+    // so this also makes the two agree. On by default.
+    @UserDefault(key: Keys.iaVoiceElapsedTime.rawValue)
+    public var iaVoiceElapsedTime: Bool
+
     @UserDefault(key: Keys.rememberLastFolder.rawValue)
     public var rememberLastFolder: Bool
     
