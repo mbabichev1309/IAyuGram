@@ -168,7 +168,9 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, cha
             let participants = combineLatest(inlineBots, searchPeerMembers(context: context, peerId: peerId, chatLocation: chatLocation, query: query, scope: .mention))
             |> map { inlineBots, peers -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
                 let filteredInlineBots = inlineBots.sorted(by: { $0.1 > $1.1 }).filter { peer, rating in
-                    if rating < 0.14 {
+                    // MARK: IAyuGram — same as in ChatInterfaceStateContextQueries: no popularity
+                    // floor for a bare "@", or cloud-synced top inline bots never make the cut.
+                    if rating < 0.14, !normalizedQuery.isEmpty {
                         return false
                     }
                     if peer.indexName.matchesByTokens(normalizedQuery) {
