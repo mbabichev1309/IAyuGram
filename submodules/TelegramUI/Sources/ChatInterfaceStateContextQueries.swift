@@ -153,14 +153,17 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, pee
         
             let participants: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, ChatContextQueryError>
             if let peer {
-                // MARK: IAyuGram — start the member list at empty instead of waiting for the
-                // lookup. combineLatest can't emit until both sides have a value, so the panel
-                // used to stay hidden (the query resets it to .mentions([]) first) until the
-                // member search answered — even in a private chat, where it can only ever be
-                // empty. Now the inline bots show as soon as they're read, and members are
-                // added when they arrive.
-                let members: Signal<[EnginePeer], NoError> = Signal<[EnginePeer], NoError>.single([])
-                |> then(searchPeerMembers(context: context, peerId: peer.id, chatLocation: chatLocation, query: query, scope: .mention))
+                // MARK: IAyuGram — for a bare "@", start the member list at empty instead of
+                // waiting for the lookup: combineLatest can't emit until both sides have a value,
+                // so the panel stayed hidden (the query resets it to .mentions([]) first) until
+                // the member search answered, even in a private chat where it can only ever be
+                // empty. Deliberately NOT done once something is typed — there the member search
+                // is the point, and an extra early emission only invites a partial list to be
+                // mistaken for the final one.
+                let memberSearch = searchPeerMembers(context: context, peerId: peer.id, chatLocation: chatLocation, query: query, scope: .mention)
+                let members: Signal<[EnginePeer], NoError> = query.isEmpty
+                    ? Signal<[EnginePeer], NoError>.single([]) |> then(memberSearch)
+                    : memberSearch
 
                 participants = combineLatest(
                     inlineBots,
