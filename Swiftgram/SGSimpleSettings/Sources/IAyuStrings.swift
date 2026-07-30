@@ -25,6 +25,10 @@ public enum IAyuStringKey: String, CaseIterable {
     case hubGhostHideConsumed
     case hubGhostInvisibleSend
     case hubGhostInfo
+    case hubMediaHeader
+    case hubMediaCap
+    case hubMediaCapUnlimited
+    case hubMediaInfo
     case hubAppearance
     case hubLocalization
     case hubConnection
@@ -105,6 +109,10 @@ public final class IAyuStrings {
         .hubGhostHideConsumed: "Don't mark voice/video as listened",
         .hubGhostInvisibleSend: "Invisible send",
         .hubGhostInfo: "Others won't see your read receipts, online status, typing, or when you play their voice/video messages. Invisible send delays your messages ~12s (sent as scheduled) so sending doesn't show you online — expect the ~12s delay.",
+        .hubMediaHeader: "PRESERVED MEDIA",
+        .hubMediaCap: "Download limit",
+        .hubMediaCapUnlimited: "Unlimited",
+        .hubMediaInfo: "Largest file this device will pull from the companion server. Anything over the limit is preserved as text with a note instead. The file itself stays on the server, so raising the limit brings it back on the next sync.",
         .hubAppearance: "Appearance",
         .hubLocalization: "Localization",
         .hubConnection: "Connection keys",
@@ -166,7 +174,8 @@ public final class IAyuStrings {
         ("SETTINGS LIST", [.settingsGhostSwitch, .settingsRow]),
         ("HUB", [.hubTitle, .hubGhostHeader, .hubGhostHideReadReceipts, .hubGhostStayOffline,
                  .hubGhostHideTyping, .hubGhostHideConsumed, .hubGhostInvisibleSend,
-                 .hubGhostInfo, .hubAppearance, .hubLocalization, .hubConnection]),
+                 .hubGhostInfo, .hubMediaHeader, .hubMediaCap, .hubMediaCapUnlimited,
+                 .hubMediaInfo, .hubAppearance, .hubLocalization, .hubConnection]),
         ("APPEARANCE", [.appearanceTitle, .appearanceBadgesHeader, .appearanceDeletedBadge,
                         .appearanceEditedBadge, .appearanceBadgesInfo, .appearanceTintDeleted,
                         .appearanceTintColor, .appearanceEditHistoryHeader, .appearanceShowDates,
@@ -198,6 +207,10 @@ public final class IAyuStrings {
         case .hubGhostHideConsumed: return "Consumed"
         case .hubGhostInvisibleSend: return "Invisible send"
         case .hubGhostInfo: return "Ghost footnote"
+        case .hubMediaHeader: return "Media header"
+        case .hubMediaCap: return "Download limit"
+        case .hubMediaCapUnlimited: return "Unlimited value"
+        case .hubMediaInfo: return "Media footnote"
         case .hubAppearance: return "Appearance row"
         case .hubLocalization: return "Localization row"
         case .hubConnection: return "Connection row"
