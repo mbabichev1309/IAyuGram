@@ -124,6 +124,18 @@ import ChatMediaInputStickerGridItem
 import AdsInfoScreen
 
 extension ChatControllerImpl {
+    // MARK: IAyuGram — invisible send diverts the message to a scheduled send, so it never
+    // lands in this history and the send transition never initiates. Voice and round video
+    // clear their recorder ONLY from that transition's `initiated` callback, so the recording
+    // panel would stay up forever. Treat a diverted send like an explicitly scheduled one:
+    // skip the animation and drop the recorder right away.
+    var iAyuInvisibleSendDiverts: Bool {
+        guard let peerId = self.chatLocation.peerId else {
+            return false
+        }
+        return iAyuInvisibleSendApplies(peerId: peerId)
+    }
+
     func requestAudioRecorder(beginWithTone: Bool, existingDraft: ChatInterfaceMediaDraftState.Audio? = nil) {
         if self.audioRecorderValue == nil {
             if self.recorderFeedback == nil && existingDraft == nil {
@@ -207,7 +219,7 @@ extension ChatControllerImpl {
                         }
                         
                         var usedCorrelationId = false
-                        if scheduleTime == nil, shouldAnimateMessageTransition, let extractedView = videoController.extractVideoSnapshot() {
+                        if scheduleTime == nil, !self.iAyuInvisibleSendDiverts, shouldAnimateMessageTransition, let extractedView = videoController.extractVideoSnapshot() {
                             usedCorrelationId = true
                             self.chatDisplayNode.messageTransitionNode.add(correlationId: correlationId, source:  .videoMessage(ChatMessageTransitionNodeImpl.Source.VideoMessage(view: extractedView)), initiated: { [weak videoController, weak self] in
                                 videoController?.hideVideoSnapshot()
@@ -374,7 +386,7 @@ extension ChatControllerImpl {
                                 shouldAnimateMessageTransition = false
                             }
                             
-                            if shouldAnimateMessageTransition, let textInputPanelNode = strongSelf.chatDisplayNode.textInputPanelNode, let micButton = textInputPanelNode.micButton {
+                            if shouldAnimateMessageTransition, !strongSelf.iAyuInvisibleSendDiverts, let textInputPanelNode = strongSelf.chatDisplayNode.textInputPanelNode, let micButton = textInputPanelNode.micButton {
                                 usedCorrelationId = true
                                 strongSelf.chatDisplayNode.messageTransitionNode.add(correlationId: correlationId, source: .audioMicInput(ChatMessageTransitionNodeImpl.Source.AudioMicInput(micButton: micButton)), initiated: {
                                     guard let strongSelf = self else {
