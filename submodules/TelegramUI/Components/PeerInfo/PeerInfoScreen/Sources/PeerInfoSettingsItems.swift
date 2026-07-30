@@ -219,7 +219,7 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
     items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "Swiftgram", icon: PresentationResourcesSettings.swiftgram, action: {
         interaction.openSettings(.swiftgram)
     }))
-    // MARK: IAyuGram — own section above Swiftgram. TODO: replace icons with dedicated IAyuGram assets
+    // MARK: IAyuGram — own section above Swiftgram.
     let ghostSettings = SGSimpleSettings.shared
     let ghostModeEnabled = ghostSettings.iaGhostHideReadReceipts
         && ghostSettings.iaGhostStayOffline
@@ -234,7 +234,7 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
         settings.iaGhostHideConsumed = value
         settings.iaGhostInvisibleSend = value
     }))
-    items[.iAyuGram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: .none, text: IAyuStrings.text(.settingsRow), icon: PresentationResourcesSettings.swiftgram, action: {
+    items[.iAyuGram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: .none, text: IAyuStrings.text(.settingsRow), icon: PresentationResourcesSettings.iAyuGram, action: {
         interaction.openSettings(.iAyuGram)
     }))
 
