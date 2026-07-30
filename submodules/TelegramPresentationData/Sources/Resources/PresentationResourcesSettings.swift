@@ -125,6 +125,9 @@ public struct PresentationResourcesSettings {
     // The glyph asset is the app icon's plane lifted to a white-on-transparent mask, at the
     // size and offset it has in the icon, so the row reads as the same logo.
     public static let iAyuGram = renderSettingsIcon(name: "IAyuGramSettings", backgroundColors: [colorIAyuMagenta, colorIAyuIndigo])
+    // Ghost glyph is drawn on a 256pt artboard, hence the scale down; flat indigo rather than
+    // the full brand gradient so the two IAyuGram rows stay tellable apart at a glance.
+    public static let iAyuGhost = renderSettingsIcon(name: "IAyuGhostSettings", scaleFactor: 30.0 / 256.0, backgroundColors: [colorIAyuIndigo])
     public static let swiftgramPro = renderSettingsIcon(name: "SwiftgramPro", scaleFactor: 30.0 / 256.0)
     public static let proxy = renderSettingsIcon(name: "Item List/Icons/Proxy", backgroundColors: [colorGreen])
     public static let savedMessages = renderSettingsIcon(name: "Item List/Icons/SavedMessages", backgroundColors: [colorBlue])
