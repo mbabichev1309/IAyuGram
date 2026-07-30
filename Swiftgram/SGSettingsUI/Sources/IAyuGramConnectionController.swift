@@ -16,20 +16,17 @@ private final class IAyuConnectionArguments {
     let updateServerURL: (String) -> Void
     let updateToken: (String) -> Void
     let connectLive: () -> Void
-    let diagnoseInlineBots: () -> Void
 
-    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void, diagnoseInlineBots: @escaping () -> Void) {
+    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void) {
         self.updateServerURL = updateServerURL
         self.updateToken = updateToken
         self.connectLive = connectLive
-        self.diagnoseInlineBots = diagnoseInlineBots
     }
 }
 
 private enum IAyuConnectionSection: Int32 {
     case connection
     case live
-    case diagnostics
 }
 
 private enum IAyuConnectionEntry: ItemListNodeEntry {
@@ -40,9 +37,6 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
     case status(String)
     case liveHeader(String)
     case event(Int, String)
-    case diagnosticsHeader(String)
-    case diagnoseInlineBots(String)
-    case diagnosticsResult(String)
 
     var section: ItemListSectionId {
         switch self {
@@ -50,8 +44,6 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             return IAyuConnectionSection.connection.rawValue
         case .liveHeader, .event:
             return IAyuConnectionSection.live.rawValue
-        case .diagnosticsHeader, .diagnoseInlineBots, .diagnosticsResult:
-            return IAyuConnectionSection.diagnostics.rawValue
         }
     }
 
@@ -64,10 +56,6 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
         case .status: return 4
         case .liveHeader: return 5
         case let .event(index, _): return 100 + Int32(index)
-        // Above the event range: the diagnostics section must sort last.
-        case .diagnosticsHeader: return 1000
-        case .diagnoseInlineBots: return 1001
-        case .diagnosticsResult: return 1002
         }
     }
 
@@ -91,12 +79,6 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             return a == b
         case let (.event(a1, a2), .event(b1, b2)):
             return a1 == b1 && a2 == b2
-        case let (.diagnosticsHeader(a), .diagnosticsHeader(b)):
-            return a == b
-        case let (.diagnoseInlineBots(a), .diagnoseInlineBots(b)):
-            return a == b
-        case let (.diagnosticsResult(a), .diagnosticsResult(b)):
-            return a == b
         default:
             return false
         }
@@ -125,14 +107,6 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .event(_, text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
-        case let .diagnosticsHeader(text):
-            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
-        case let .diagnoseInlineBots(title):
-            return ItemListActionItem(presentationData: presentationData, title: title, kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
-                arguments.diagnoseInlineBots()
-            })
-        case let .diagnosticsResult(text):
-            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         }
     }
 }
@@ -142,7 +116,6 @@ private struct IAyuConnectionState: Equatable {
     var token: String
     var status: String
     var events: [IAyuMessageEvent]
-    var inlineBotsDiagnostic: String
 }
 
 private func iAyuConnectionEventDescription(_ event: IAyuMessageEvent) -> String {
@@ -155,8 +128,7 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
         serverURL: SGSimpleSettings.shared.iaSyncServerURL,
         token: SGSimpleSettings.shared.iaSyncClientToken,
         status: "",
-        events: [],
-        inlineBotsDiagnostic: ""
+        events: []
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -212,20 +184,6 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
                 return state
             }
         }
-    }, diagnoseInlineBots: {
-        updateState { state in
-            var state = state
-            state.inlineBotsDiagnostic = "…"
-            return state
-        }
-        let _ = (iAyuDiagnoseInlineBots(account: context.account)
-        |> deliverOnMainQueue).startStandalone(next: { text in
-            updateState { state in
-                var state = state
-                state.inlineBotsDiagnostic = text
-                return state
-            }
-        })
     })
 
     let signal = combineLatest(statePromise.get(), context.sharedContext.presentationData)
@@ -243,11 +201,6 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
             for (index, event) in state.events.enumerated() {
                 entries.append(.event(index, iAyuConnectionEventDescription(event)))
             }
-        }
-        entries.append(.diagnosticsHeader(IAyuStrings.text(.diagnosticsHeader)))
-        entries.append(.diagnoseInlineBots(IAyuStrings.text(.diagnosticsInlineBots)))
-        if !state.inlineBotsDiagnostic.isEmpty {
-            entries.append(.diagnosticsResult(state.inlineBotsDiagnostic))
         }
 
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(IAyuStrings.text(.connectionTitle)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
