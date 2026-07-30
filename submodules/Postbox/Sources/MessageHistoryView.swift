@@ -427,15 +427,6 @@ final class MutableMessageHistoryView: MutablePostboxView {
                 break
             }
         }
-        if case let .loading(loadingState) = self.state {
-            let sampledState = loadingState.checkAndSample(postbox: postbox)
-            switch sampledState {
-            case let .ready(anchor, holes):
-                self.state = .loaded(HistoryViewLoadedState(anchor: anchor, tag: self.tag, appendMessagesFromTheSameGroup: self.appendMessagesFromTheSameGroup, namespaces: self.namespaces, statistics: self.orderStatistics, ignoreMessagesInTimestampRange: self.ignoreMessagesInTimestampRange, ignoreMessageIds: self.ignoreMessageIds, halfLimit: self.fillCount + 1, locations: self.peerIds, postbox: postbox, holes: holes))
-            case .loadHole:
-                break
-            }
-        }
         self.sampledState = self.state.sample(postbox: postbox, clipHoles: self.clipHoles)
         
         let _ = self.updateStoryStats(postbox: postbox)
