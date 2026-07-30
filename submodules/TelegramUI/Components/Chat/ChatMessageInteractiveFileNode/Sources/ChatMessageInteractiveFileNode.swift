@@ -1695,11 +1695,28 @@ public final class ChatMessageInteractiveFileNode: ASDisplayNode {
                 
                 // MARK: IAyuGram — stock counts a playing voice message DOWN by passing the
                 // position to stringForDuration, which returns duration - position. Count up
-                // instead when asked, clamped to the duration so a position running slightly
-                // past the end (it is extrapolated from CACurrentMediaTime) can't overshoot.
+                // instead when asked, and only while it is actually running: paused or stopped
+                // goes back to the full length, since the waveform already shows the position.
+                // Buffering counts as running when it interrupted playback, so a stall doesn't
+                // flip the label to the total and back. Clamped to the duration because the
+                // position is extrapolated from CACurrentMediaTime and can overshoot the end.
+                let isRunning: Bool
+                switch playerStatus.status {
+                case .playing:
+                    isRunning = true
+                case let .buffering(_, whilePlaying, _, _):
+                    isRunning = whilePlaying
+                case .paused:
+                    isRunning = false
+                }
+
                 let durationString: String
-                if SGSimpleSettings.shared.iaVoiceElapsedTime, let playerPosition {
-                    durationString = stringForDuration(Int32(max(0.0, min(effectiveDuration, playerPosition))))
+                if SGSimpleSettings.shared.iaVoiceElapsedTime {
+                    if isRunning, let playerPosition {
+                        durationString = stringForDuration(Int32(max(0.0, min(effectiveDuration, playerPosition))))
+                    } else {
+                        durationString = stringForDuration(Int32(effectiveDuration))
+                    }
                 } else {
                     durationString = stringForDuration(Int32(effectiveDuration), position: playerPosition.flatMap { Int32($0) })
                 }
