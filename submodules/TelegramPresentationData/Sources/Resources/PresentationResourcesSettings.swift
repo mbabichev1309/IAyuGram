@@ -116,8 +116,15 @@ let colorPurple = UIColor(rgb: 0xAF52DE)
 let colorGray = UIColor(rgb: 0x8E8E93)
 let colorViolet = UIColor(rgb: 0x5E5CE6)
 
+// MARK: IAyuGram — the app icon's own gradient, straight from IAyuGram.icon/icon.json.
+private let colorIAyuMagenta = UIColor(rgb: 0x9A2A7C)
+private let colorIAyuIndigo = UIColor(rgb: 0x4B3D98)
+
 public struct PresentationResourcesSettings {
     public static let swiftgram = renderSettingsIcon(name: "SwiftgramSettings", scaleFactor: 30.0 / 512.0)
+    // The glyph asset is the app icon's plane lifted to a white-on-transparent mask, at the
+    // size and offset it has in the icon, so the row reads as the same logo.
+    public static let iAyuGram = renderSettingsIcon(name: "IAyuGramSettings", backgroundColors: [colorIAyuMagenta, colorIAyuIndigo])
     public static let swiftgramPro = renderSettingsIcon(name: "SwiftgramPro", scaleFactor: 30.0 / 256.0)
     public static let proxy = renderSettingsIcon(name: "Item List/Icons/Proxy", backgroundColors: [colorGreen])
     public static let savedMessages = renderSettingsIcon(name: "Item List/Icons/SavedMessages", backgroundColors: [colorBlue])
