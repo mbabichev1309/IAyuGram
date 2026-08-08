@@ -54,7 +54,7 @@ public final class IAyuSyncManager {
     // itself worth a warning — reconnects are routine, and iOS kills the socket on every
     // backgrounding. Only a drop that outlives the grace period means something is wrong.
     private var isLiveConnected = false
-    private var degradeGeneration = 0
+    private var degradeCheckPending = false
 
     public init(context: AccountContext) {
         self.context = context
@@ -102,7 +102,6 @@ public final class IAyuSyncManager {
             if connected {
                 // Reset the backoff once we're actually connected.
                 self.reconnectDelay = 5.0
-                self.degradeGeneration += 1
                 IAyuCaptureHealth.shared.update(.healthy)
             } else {
                 self.scheduleDegradeCheck()
@@ -118,10 +117,20 @@ public final class IAyuSyncManager {
     // "running but no longer authorized with Telegram", and the second is the one that
     // looks fine from outside while capturing nothing.
     private func scheduleDegradeCheck() {
-        self.degradeGeneration += 1
-        let generation = self.degradeGeneration
+        // Start the countdown on the transition into "down", NOT on every failure.
+        // Reconnect attempts keep failing while the server is off and the backoff caps
+        // at 60s, so re-arming the timer per failure meant a grace period longer than
+        // the retry interval could never elapse — the check simply never ran.
+        guard !self.degradeCheckPending else {
+            return
+        }
+        self.degradeCheckPending = true
         Queue.mainQueue().after(iAyuCaptureDegradeGracePeriod, { [weak self] in
-            guard let self = self, self.active, generation == self.degradeGeneration, !self.isLiveConnected else {
+            guard let self = self, self.active else {
+                return
+            }
+            self.degradeCheckPending = false
+            guard !self.isLiveConnected else {
                 return
             }
             self.probeHealth()
@@ -142,6 +151,7 @@ public final class IAyuSyncManager {
                 }
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data else {
                     IAyuCaptureHealth.shared.update(.unreachable)
+                    self.rearmDegradeCheck()
                     return
                 }
                 // Older server builds answer /healthz without the field; absence must not
@@ -149,13 +159,25 @@ public final class IAyuSyncManager {
                 let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
                 if let authorized = json?["session_authorized"] as? Bool, !authorized {
                     IAyuCaptureHealth.shared.update(.sessionLost)
+                    self.rearmDegradeCheck()
                 } else {
-                    // The server is up and authorized; only our socket is unhappy. Still
-                    // worth surfacing, since no live event can reach us in that state.
-                    IAyuCaptureHealth.shared.update(.unreachable)
+                    // Server up and still authorized: capture is running and nothing is
+                    // being lost, whatever our own socket is doing — gap-sync backfills
+                    // it. Reporting this as degraded would light up after every return
+                    // from the background, when the socket is briefly down by design.
+                    IAyuCaptureHealth.shared.update(.healthy)
                 }
             }
         }.resume()
+    }
+
+    // Keep probing while we stay down, so a server that later loses its session is
+    // still noticed rather than being frozen at whatever the first probe found.
+    private func rearmDegradeCheck() {
+        guard self.active, !self.isLiveConnected else {
+            return
+        }
+        self.scheduleDegradeCheck()
     }
 
     // Reconnect with exponential backoff (5s → 60s cap) after the socket drops, and
