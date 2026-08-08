@@ -772,12 +772,25 @@ func enqueueMessages(transaction: Transaction, account: Account, peerId: PeerId,
             case let .forward(sourceId, threadId, _, _, _):
                 if let sourceMessage = forwardedMessageToBeReuploaded(transaction: transaction, id: sourceId) {
                     var mediaReference: AnyMediaReference?
+                    var attributes = sourceMessage.attributes
                     if sourceMessage.id.peerId.namespace == Namespaces.Peer.SecretChat {
                         if let media = sourceMessage.media.first {
                             mediaReference = .standalone(media: media)
                         }
+                    } else if attributes.contains(where: { $0 is DeletedMessageAttribute }) {
+                        // MARK: IAyuGram — a preserved deleted message is a synthetic LOCAL
+                        // message with no cloud id, so it can never be forwarded server-side.
+                        // It reaches this reupload path already, but without media the copy of
+                        // a caption-less photo or video is an empty message and the send fails.
+                        // Attach the preserved media so it is re-sent as our own message, and
+                        // drop the attribute so the copy is not badged and tinted as deleted in
+                        // the target chat.
+                        if let media = sourceMessage.media.first {
+                            mediaReference = .standalone(media: media)
+                        }
+                        attributes = attributes.filter { !($0 is DeletedMessageAttribute) }
                     }
-                    updatedMessages.append((transformedMedia, .message(text: sourceMessage.text, attributes: sourceMessage.attributes, inlineStickers: [:], mediaReference: mediaReference, threadId: threadId, replyToMessageId: threadId.flatMap { EngineMessageReplySubject(messageId: MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: Int32(clamping: $0)), quote: nil, innerSubject: nil) }, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])))
+                    updatedMessages.append((transformedMedia, .message(text: sourceMessage.text, attributes: attributes, inlineStickers: [:], mediaReference: mediaReference, threadId: threadId, replyToMessageId: threadId.flatMap { EngineMessageReplySubject(messageId: MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: Int32(clamping: $0)), quote: nil, innerSubject: nil) }, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])))
                     continue outer
                 }
         }
