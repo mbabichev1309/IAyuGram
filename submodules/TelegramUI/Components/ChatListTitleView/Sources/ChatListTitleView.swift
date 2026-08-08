@@ -350,11 +350,8 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
     // MARK: IAyuGram — show or hide the capture-health marker and re-run layout, since
     // the title shifts to make room for it.
     private func iAyuUpdateCaptureWarning() {
-        let shouldShow = IAyuCaptureHealth.shared.isDegraded
-        guard self.iAyuCaptureWarningView.isHidden == shouldShow else {
-            return
-        }
-        self.iAyuCaptureWarningView.isHidden = !shouldShow
+        // updateLayoutInternal re-reads the state itself; this only makes the change
+        // visible immediately instead of at the next layout pass.
         if let size = self.validLayout {
             let _ = self.updateLayoutInternal(size: size, transition: .immediate)
         }
@@ -389,8 +386,13 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         if !self.activityIndicator.isHidden {
             indicatorPadding = indicatorSize.width + 6.0
         }
-        // MARK: IAyuGram — reserve room for the capture-health marker so the title stays
-        // centred as a group with it rather than shifting when it appears.
+        // MARK: IAyuGram — re-read the health state here rather than trusting that the
+        // change notification was received. Layout runs far more often than the state
+        // changes, so this is self-healing: a missed notification costs at most one pass.
+        self.iAyuCaptureWarningView.isHidden = !IAyuCaptureHealth.shared.isDegraded
+
+        // Reserve room for the capture-health marker so the title stays centred as a
+        // group with it rather than shifting when it appears.
         var iAyuWarningPadding: CGFloat = 0.0
         if !self.iAyuCaptureWarningView.isHidden {
             iAyuWarningPadding = iAyuCaptureWarningDiameter + 6.0

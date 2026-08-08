@@ -34,16 +34,22 @@ public final class IAyuCaptureHealth {
     // Posted on the main queue whenever `state` changes.
     public static let changedNotification = Notification.Name("IAyuCaptureHealthChanged")
 
-    private let lock = NSLock()
-    private var currentState: IAyuCaptureState = .notConfigured
+    // The state lives in UserDefaults rather than in a stored property, deliberately.
+    // The writer (IAyuSyncManager, in SGSettingsUI) and the reader (the chat list title,
+    // in ChatListTitleView) are different modules, and a statically linked module can
+    // end up with one copy of its globals per link unit — so `shared` is not necessarily
+    // the same object on both sides. NotificationCenter.default IS process-wide, which
+    // produced exactly the symptom that cost a build cycle here: the notification
+    // arrived, the reader re-read ITS copy, found it healthy, and drew nothing while the
+    // settings screen was reporting UNREACHABLE. UserDefaults is shared by construction.
+    private static let stateKey = "ia_capture_state"
 
     private init() {
     }
 
     public var state: IAyuCaptureState {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        return self.currentState
+        let raw = UserDefaults.standard.integer(forKey: IAyuCaptureHealth.stateKey)
+        return IAyuCaptureState(rawValue: raw) ?? .notConfigured
     }
 
     // True when the user should be told something is wrong.
@@ -57,14 +63,11 @@ public final class IAyuCaptureHealth {
     }
 
     public func update(_ state: IAyuCaptureState) {
-        self.lock.lock()
-        let changed = self.currentState != state
-        self.currentState = state
-        self.lock.unlock()
-
-        guard changed else {
+        guard self.state != state else {
             return
         }
+        UserDefaults.standard.set(state.rawValue, forKey: IAyuCaptureHealth.stateKey)
+
         if Thread.isMainThread {
             NotificationCenter.default.post(name: IAyuCaptureHealth.changedNotification, object: nil)
         } else {
