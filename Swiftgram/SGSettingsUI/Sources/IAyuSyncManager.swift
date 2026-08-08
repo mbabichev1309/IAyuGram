@@ -19,6 +19,19 @@ private struct IAyuGapSyncResponse: Codable {
 
 private let iAyuGapSyncPageLimit = 500
 
+// How long the live socket may stay down before it is reported as an outage. Long
+// enough to cover a reconnect (backoff caps at 60s) and a walk through a dead spot,
+// short enough that a genuinely dead server is noticed the same day.
+private let iAyuCaptureDegradeGracePeriod = 180.0
+
+private func iAyuHealthzURL(serverURL: String) -> URL? {
+    guard var components = URLComponents(string: serverURL.contains("://") ? serverURL : "https://\(serverURL)") else {
+        return nil
+    }
+    components.path = "/healthz"
+    return components.url
+}
+
 // Phase 2b step 5: the always-on sync engine. Instantiated once per authorized
 // account at app launch (from AuthorizedApplicationContext), independent of the
 // settings screen. It opens the /live WebSocket for real-time events and runs REST
@@ -37,6 +50,11 @@ public final class IAyuSyncManager {
     private var token = ""
     private var reconnectDelay = 5.0
     private var foregroundObserver: NSObjectProtocol?
+    // Capture-health tracking (see IAyuCaptureHealth). The socket dropping is not by
+    // itself worth a warning — reconnects are routine, and iOS kills the socket on every
+    // backgrounding. Only a drop that outlives the grace period means something is wrong.
+    private var isLiveConnected = false
+    private var degradeGeneration = 0
 
     public init(context: AccountContext) {
         self.context = context
@@ -60,9 +78,13 @@ public final class IAyuSyncManager {
         self.serverURL = SGSimpleSettings.shared.iaSyncServerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         self.token = SGSimpleSettings.shared.iaSyncClientToken
         guard !self.serverURL.isEmpty, !self.token.isEmpty else {
-            // Companion server not configured — nothing to sync.
+            // Companion server not configured — nothing to sync, and nothing to warn about.
+            IAyuCaptureHealth.shared.update(.notConfigured)
             return
         }
+        // Assume healthy until something actually fails, so a cold launch never flashes
+        // a warning before the first connection has had a chance to complete.
+        IAyuCaptureHealth.shared.update(.healthy)
         // Connect live first so events firing during the gap-sync fetch aren't lost;
         // the cursor dedup below drops any that both paths deliver.
         self.connectLive()
@@ -73,14 +95,67 @@ public final class IAyuSyncManager {
         self.liveSession?.stop()
         self.liveSession = IAyuLiveSession(serverURL: self.serverURL, token: self.token, onEvent: { [weak self] event in
             self?.handle(event)
-        }, onStatus: { [weak self] status in
-            // Reset the backoff once we're actually connected.
-            if status.contains("connected") {
-                self?.reconnectDelay = 5.0
+        }, onStatus: { _ in
+        }, onConnected: { [weak self] connected in
+            guard let self = self else { return }
+            self.isLiveConnected = connected
+            if connected {
+                // Reset the backoff once we're actually connected.
+                self.reconnectDelay = 5.0
+                self.degradeGeneration += 1
+                IAyuCaptureHealth.shared.update(.healthy)
+            } else {
+                self.scheduleDegradeCheck()
             }
         }, onClosed: { [weak self] in
             self?.scheduleReconnect()
         })
+    }
+
+    // A dropped socket only counts as a real outage once it has stayed down past the
+    // grace period, so ordinary reconnects and app backgrounding stay silent. When the
+    // grace period is up, ask the server directly: it distinguishes "unreachable" from
+    // "running but no longer authorized with Telegram", and the second is the one that
+    // looks fine from outside while capturing nothing.
+    private func scheduleDegradeCheck() {
+        self.degradeGeneration += 1
+        let generation = self.degradeGeneration
+        Queue.mainQueue().after(iAyuCaptureDegradeGracePeriod, { [weak self] in
+            guard let self = self, self.active, generation == self.degradeGeneration, !self.isLiveConnected else {
+                return
+            }
+            self.probeHealth()
+        })
+    }
+
+    private func probeHealth() {
+        guard let url = iAyuHealthzURL(serverURL: self.serverURL) else {
+            IAyuCaptureHealth.shared.update(.unreachable)
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15.0
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            Queue.mainQueue().async {
+                guard let self = self, self.active, !self.isLiveConnected else {
+                    return
+                }
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data else {
+                    IAyuCaptureHealth.shared.update(.unreachable)
+                    return
+                }
+                // Older server builds answer /healthz without the field; absence must not
+                // read as "session lost", so only an explicit false counts.
+                let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                if let authorized = json?["session_authorized"] as? Bool, !authorized {
+                    IAyuCaptureHealth.shared.update(.sessionLost)
+                } else {
+                    // The server is up and authorized; only our socket is unhappy. Still
+                    // worth surfacing, since no live event can reach us in that state.
+                    IAyuCaptureHealth.shared.update(.unreachable)
+                }
+            }
+        }.resume()
     }
 
     // Reconnect with exponential backoff (5s → 60s cap) after the socket drops, and

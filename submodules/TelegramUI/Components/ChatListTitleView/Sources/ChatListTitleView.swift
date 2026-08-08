@@ -11,8 +11,14 @@ import MultiAnimationRenderer
 import TelegramCore
 import ComponentDisplayAdapters
 import AccountContext
+import SGSimpleSettings
 
 private let titleFont = Font.with(size: 17.0, design: .regular, weight: .semibold, traits: [.monospacedNumbers])
+
+// MARK: IAyuGram — capture-health marker, a red dot to the left of the chat list title.
+// Hidden unless the companion capture pipeline is actually in trouble, so the default
+// appearance of the app is unchanged.
+private let iAyuCaptureWarningDiameter: CGFloat = 8.0
 
 public struct NetworkStatusTitle: Equatable {
     public enum Status: Equatable {
@@ -56,6 +62,9 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
     private let buttonView: HighlightTrackingButton
     private let proxyNode: ChatTitleProxyNode
     private let proxyButton: HighlightTrackingButton
+    // MARK: IAyuGram — capture-health marker and its observer.
+    private let iAyuCaptureWarningView: UIView
+    private var iAyuCaptureHealthObserver: NSObjectProtocol?
     private var titleCredibilityIconView: ComponentHostView<Empty>?
     private let animationCache: AnimationCache
     private let animationRenderer: MultiAnimationRenderer
@@ -254,7 +263,14 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         
         self.proxyNode = ChatTitleProxyNode(theme: self.theme)
         self.proxyNode.isHidden = true
-        
+
+        // MARK: IAyuGram — capture-health marker.
+        self.iAyuCaptureWarningView = UIView(frame: CGRect(origin: CGPoint(), size: CGSize(width: iAyuCaptureWarningDiameter, height: iAyuCaptureWarningDiameter)))
+        self.iAyuCaptureWarningView.backgroundColor = UIColor(rgb: 0xff3b30)
+        self.iAyuCaptureWarningView.layer.cornerRadius = iAyuCaptureWarningDiameter / 2.0
+        self.iAyuCaptureWarningView.isUserInteractionEnabled = false
+        self.iAyuCaptureWarningView.isHidden = !IAyuCaptureHealth.shared.isDegraded
+
         self.buttonView = HighlightTrackingButton()
         self.buttonView.isAccessibilityElement = true
         self.buttonView.accessibilityTraits = .header
@@ -275,7 +291,13 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         self.addSubview(self.lockView)
         self.addSubview(self.buttonView)
         self.addSubview(self.proxyButton)
-        
+        self.addSubview(self.iAyuCaptureWarningView)
+
+        // MARK: IAyuGram — follow capture health for the lifetime of the title view.
+        self.iAyuCaptureHealthObserver = NotificationCenter.default.addObserver(forName: IAyuCaptureHealth.changedNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.iAyuUpdateCaptureWarning()
+        }
+
         self.buttonView.highligthedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted && !strongSelf.lockView.isHidden && strongSelf.activityIndicator.isHidden {
@@ -318,7 +340,26 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
     required public init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
+    deinit {
+        if let observer = self.iAyuCaptureHealthObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    // MARK: IAyuGram — show or hide the capture-health marker and re-run layout, since
+    // the title shifts to make room for it.
+    private func iAyuUpdateCaptureWarning() {
+        let shouldShow = IAyuCaptureHealth.shared.isDegraded
+        guard self.iAyuCaptureWarningView.isHidden == shouldShow else {
+            return
+        }
+        self.iAyuCaptureWarningView.isHidden = !shouldShow
+        if let size = self.validLayout {
+            let _ = self.updateLayoutInternal(size: size, transition: .immediate)
+        }
+    }
+
     override public func layoutSubviews() {
         super.layoutSubviews()
         
@@ -348,7 +389,13 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         if !self.activityIndicator.isHidden {
             indicatorPadding = indicatorSize.width + 6.0
         }
-        var maxTitleWidth = size.width - indicatorPadding
+        // MARK: IAyuGram — reserve room for the capture-health marker so the title stays
+        // centred as a group with it rather than shifting when it appears.
+        var iAyuWarningPadding: CGFloat = 0.0
+        if !self.iAyuCaptureWarningView.isHidden {
+            iAyuWarningPadding = iAyuCaptureWarningDiameter + 6.0
+        }
+        var maxTitleWidth = size.width - indicatorPadding - iAyuWarningPadding
         var proxyPadding: CGFloat = 0.0
         if !self.proxyNode.isHidden {
             maxTitleWidth -= 25.0
@@ -362,11 +409,11 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         
         let combinedHeight = titleSize.height
         
-        let combinedWidth = titleSize.width
-        
+        let combinedWidth = titleSize.width + iAyuWarningPadding
+
         var titleContentRect = CGRect(origin: CGPoint(x: indicatorPadding + floor((size.width - combinedWidth - indicatorPadding) / 2.0), y: floor((size.height - combinedHeight) / 2.0)), size: titleSize)
-        
-        titleContentRect.origin.x = min(titleContentRect.origin.x, size.width - proxyPadding - titleContentRect.width)
+
+        titleContentRect.origin.x = min(titleContentRect.origin.x, size.width - proxyPadding - iAyuWarningPadding - titleContentRect.width)
         
         let titleFrame = titleContentRect
         var titleTransition = transition
@@ -374,7 +421,18 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
             titleTransition = .immediate
         }
         titleTransition.updateFrame(node: self.titleNode, frame: titleFrame)
-        
+
+        // MARK: IAyuGram — capture-health marker, immediately right of the title text.
+        if !self.iAyuCaptureWarningView.isHidden {
+            let warningFrame = CGRect(
+                x: titleFrame.maxX + 6.0,
+                y: titleFrame.minY + floor((titleFrame.height - iAyuCaptureWarningDiameter) / 2.0),
+                width: iAyuCaptureWarningDiameter,
+                height: iAyuCaptureWarningDiameter
+            )
+            transition.updateFrame(view: self.iAyuCaptureWarningView, frame: warningFrame)
+        }
+
         let proxyFrame = CGRect(origin: CGPoint(x: size.width - 9.0 - self.proxyNode.bounds.width, y: floor((size.height - self.proxyNode.bounds.height) / 2.0)), size: self.proxyNode.bounds.size)
         self.proxyNode.frame = proxyFrame
         
