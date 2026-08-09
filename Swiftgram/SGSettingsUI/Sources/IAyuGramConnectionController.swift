@@ -16,17 +16,36 @@ private final class IAyuConnectionArguments {
     let updateServerURL: (String) -> Void
     let updateToken: (String) -> Void
     let connectLive: () -> Void
+    let forceDegraded: () -> Void
 
-    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void) {
+    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void, forceDegraded: @escaping () -> Void) {
         self.updateServerURL = updateServerURL
         self.updateToken = updateToken
         self.connectLive = connectLive
+        self.forceDegraded = forceDegraded
     }
 }
 
 private enum IAyuConnectionSection: Int32 {
     case connection
     case live
+    case diagnostics
+}
+
+// Bumped by hand whenever this file changes in a way worth confirming on-device. CI
+// numbers every branch from the same base, so two different builds can carry the same
+// CFBundleVersion and there is otherwise no way to tell from the phone which binary is
+// actually installed — which is exactly the ambiguity that stalled the capture-health
+// investigation.
+private let iAyuBuildMarker = "capture-health-title-8"
+
+private func iAyuCaptureStateDescription(_ state: IAyuCaptureState) -> String {
+    switch state {
+    case .notConfigured: return "not configured (no server URL/token)"
+    case .healthy: return "healthy"
+    case .unreachable: return "UNREACHABLE — server not answering"
+    case .sessionLost: return "SESSION LOST — server up, Telegram session revoked"
+    }
 }
 
 private enum IAyuConnectionEntry: ItemListNodeEntry {
@@ -37,6 +56,9 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
     case status(String)
     case liveHeader(String)
     case event(Int, String)
+    case diagHeader(String)
+    case diagState(String)
+    case diagForce(String)
 
     var section: ItemListSectionId {
         switch self {
@@ -44,6 +66,8 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             return IAyuConnectionSection.connection.rawValue
         case .liveHeader, .event:
             return IAyuConnectionSection.live.rawValue
+        case .diagHeader, .diagState, .diagForce:
+            return IAyuConnectionSection.diagnostics.rawValue
         }
     }
 
@@ -56,6 +80,9 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
         case .status: return 4
         case .liveHeader: return 5
         case let .event(index, _): return 100 + Int32(index)
+        case .diagHeader: return 10000
+        case .diagState: return 10001
+        case .diagForce: return 10002
         }
     }
 
@@ -79,6 +106,12 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             return a == b
         case let (.event(a1, a2), .event(b1, b2)):
             return a1 == b1 && a2 == b2
+        case let (.diagHeader(a), .diagHeader(b)):
+            return a == b
+        case let (.diagState(a), .diagState(b)):
+            return a == b
+        case let (.diagForce(a), .diagForce(b)):
+            return a == b
         default:
             return false
         }
@@ -103,6 +136,14 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             })
         case let .status(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .diagHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .diagState(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .diagForce(title):
+            return ItemListActionItem(presentationData: presentationData, title: title, kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
+                arguments.forceDegraded()
+            })
         case let .liveHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .event(_, text):
@@ -116,6 +157,9 @@ private struct IAyuConnectionState: Equatable {
     var token: String
     var status: String
     var events: [IAyuMessageEvent]
+    // Bumped to force a re-render after the diagnostics row's value changes underneath
+    // it — the health state lives outside this screen's state, so nothing else would.
+    var diagTick: Int
 }
 
 private func iAyuConnectionEventDescription(_ event: IAyuMessageEvent) -> String {
@@ -128,7 +172,8 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
         serverURL: SGSimpleSettings.shared.iaSyncServerURL,
         token: SGSimpleSettings.shared.iaSyncClientToken,
         status: "",
-        events: []
+        events: [],
+        diagTick: 0
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -184,6 +229,17 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
                 return state
             }
         }
+    }, forceDegraded: {
+        // Drives the published state directly, bypassing detection entirely, so the
+        // chat-list marker can be verified independently of whether an outage is
+        // correctly noticed. If the dot appears after this and not during a real
+        // outage, the bug is in detection; if it never appears, it is in the UI.
+        IAyuCaptureHealth.shared.update(.unreachable)
+        updateState { state in
+            var state = state
+            state.diagTick += 1
+            return state
+        }
     })
 
     let signal = combineLatest(statePromise.get(), context.sharedContext.presentationData)
@@ -202,6 +258,9 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
                 entries.append(.event(index, iAyuConnectionEventDescription(event)))
             }
         }
+        entries.append(.diagHeader("DIAGNOSTICS"))
+        entries.append(.diagState("Build: \(iAyuBuildMarker)\nCapture health: \(iAyuCaptureStateDescription(IAyuCaptureHealth.shared.state))"))
+        entries.append(.diagForce("Force the warning on"))
 
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(IAyuStrings.text(.connectionTitle)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)

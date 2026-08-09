@@ -12,6 +12,7 @@ swift_library(
     deps = [
         "//submodules/SSignalKit/SwiftSignalKit",
         "//submodules/Display",
+        "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
         "//submodules/ComponentFlow",
         "//submodules/TelegramPresentationData",
         "//submodules/TelegramUI/Components/ChatListTitleView",

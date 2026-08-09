@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import Display
+import SGSimpleSettings
 import ComponentFlow
 import TelegramPresentationData
 import AccountContext
@@ -711,6 +712,14 @@ public final class ChatListHeaderComponent: Component {
             }
             
             self.titleTextView.isHidden = self.chatListTitleView != nil || self.titleContentView != nil
+            // MARK: IAyuGram — the capture warning is carried by the title DATA, which
+            // reaches the richer renderer. This plain view is fed by content.title, a
+            // value fixed at init that the override cannot reach, so while the warning is
+            // up it would draw the ordinary title on top of it — the two were visible
+            // side by side on device, offset by the story-list scroll. Hide it instead.
+            if IAyuCaptureHealth.shared.isDegraded {
+                self.titleTextView.isHidden = true
+            }
             self.centerContentWidth = centerContentWidth
             self.centerContentOffsetX = centerContentOffsetX
             self.centerContentOrigin = centerContentOrigin

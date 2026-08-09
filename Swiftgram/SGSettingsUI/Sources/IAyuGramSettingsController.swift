@@ -71,17 +71,22 @@ final class IAyuLiveSession {
     private let task: URLSessionWebSocketTask
     private let onEvent: (IAyuMessageEvent) -> Void
     private let onStatus: (String) -> Void
+    // Whether the socket is up, as a value rather than as prose. The status strings are
+    // user-editable and localized, so matching on them is unreliable — and literally
+    // wrong for "connected", which is a substring of "disconnected".
+    private let onConnected: ((Bool) -> Void)?
     // Called once when the socket closes/fails, so the owner can reconnect.
     private let onClosed: (() -> Void)?
     private var active = true
     private var didNotifyClosed = false
 
-    init?(serverURL: String, token: String, onEvent: @escaping (IAyuMessageEvent) -> Void, onStatus: @escaping (String) -> Void, onClosed: (() -> Void)? = nil) {
+    init?(serverURL: String, token: String, onEvent: @escaping (IAyuMessageEvent) -> Void, onStatus: @escaping (String) -> Void, onConnected: ((Bool) -> Void)? = nil, onClosed: (() -> Void)? = nil) {
         guard let url = IAyuLiveSession.liveURL(serverURL: serverURL, token: token) else {
             return nil
         }
         self.onEvent = onEvent
         self.onStatus = onStatus
+        self.onConnected = onConnected
         self.onClosed = onClosed
         self.task = URLSession.shared.webSocketTask(with: url)
         self.task.resume()
@@ -97,6 +102,7 @@ final class IAyuLiveSession {
                     self.notifyClosed()
                 } else {
                     self.onStatus(IAyuStrings.text(.connectionStatusConnected))
+                    self.onConnected?(true)
                 }
             }
         }
@@ -123,6 +129,7 @@ final class IAyuLiveSession {
     private func notifyClosed() {
         guard self.active, !self.didNotifyClosed else { return }
         self.didNotifyClosed = true
+        self.onConnected?(false)
         self.onClosed?()
     }
 
