@@ -21,11 +21,11 @@ enum ApplicationShortcutItemType: String {
 /// once presence has gone online, last-seen is bumped and enabling ghost afterwards
 /// no longer hides that you opened the app.
 func iAyuForceGhostModeOn() {
-    SGSimpleSettings.shared.iaGhostHideReadReceipts = true
-    SGSimpleSettings.shared.iaGhostStayOffline = true
-    SGSimpleSettings.shared.iaGhostHideTyping = true
-    SGSimpleSettings.shared.iaGhostHideConsumed = true
-    SGSimpleSettings.shared.iaGhostInvisibleSend = true
+    // Locked signals are left alone here too. A lock is the user saying "this one is
+    // mine to set", and honouring it only in Settings while the quick action overrode it
+    // would make the lock unreliable in exactly the situation it is used for.
+    // Invisible send is not included: it is no longer part of ghost mode.
+    IAyuGhost.setAll(true)
 }
 
 struct ApplicationShortcutItem: Equatable {

@@ -2,6 +2,7 @@ import Foundation
 import SwiftSignalKit
 import Postbox
 import TelegramApi
+import SGSimpleSettings
 
 public enum EngineStoryInputMedia {
     case image(dimensions: PixelDimensions, data: Data, stickers: [TelegramMediaFile])
@@ -2086,6 +2087,13 @@ func _internal_markStoryAsSeen(account: Account, peerId: PeerId, id: Int32, asPi
             }
             #endif
             
+            // MARK: IAyuGram ghost — don't report the view. This is the pinned-story
+            // path; the other one goes through stories.readStories, and BOTH have to be
+            // cut or half the views are still reported.
+            if SGSimpleSettings.shared.iaGhostHideStoryViews {
+                return .complete()
+            }
+
             return account.network.request(Api.functions.stories.incrementStoryViews(peer: inputPeer, id: [id]))
             |> `catch` { _ -> Signal<Api.Bool, NoError> in
                 return .single(.boolFalse)
@@ -2102,7 +2110,13 @@ func _internal_markStoryAsSeen(account: Account, peerId: PeerId, id: Int32, asPi
             
             #if DEBUG && false
             #else
-            _internal_addSynchronizeViewStoriesOperation(peerId: peerId, storyId: id, transaction: transaction)
+            // MARK: IAyuGram ghost — the local maxReadId above is kept on purpose, so
+            // the ring still clears for us; only the operation that would push
+            // stories.readStories to the server is skipped. Same shape as the consumed
+            // (voice/video) gate: mark read locally, tell the network nothing.
+            if !SGSimpleSettings.shared.iaGhostHideStoryViews {
+                _internal_addSynchronizeViewStoriesOperation(peerId: peerId, storyId: id, transaction: transaction)
+            }
             #endif
             
             return transaction.getPeer(peerId).flatMap(apiInputUser)

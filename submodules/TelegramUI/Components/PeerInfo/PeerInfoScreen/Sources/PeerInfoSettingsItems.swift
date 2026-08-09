@@ -218,19 +218,12 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
         interaction.openSettings(.swiftgram)
     }))
     // MARK: IAyuGram — own section above Swiftgram.
-    let ghostSettings = SGSimpleSettings.shared
-    let ghostModeEnabled = ghostSettings.iaGhostHideReadReceipts
-        && ghostSettings.iaGhostStayOffline
-        && ghostSettings.iaGhostHideTyping
-        && ghostSettings.iaGhostHideConsumed
-        && ghostSettings.iaGhostInvisibleSend
-    items[.iAyuGram]!.append(PeerInfoScreenSwitchItem(id: 0, text: IAyuStrings.text(.settingsGhostSwitch), value: ghostModeEnabled, icon: PresentationResourcesSettings.iAyuGhost, isLocked: false, toggled: { value in
-        let settings = SGSimpleSettings.shared
-        settings.iaGhostHideReadReceipts = value
-        settings.iaGhostStayOffline = value
-        settings.iaGhostHideTyping = value
-        settings.iaGhostHideConsumed = value
-        settings.iaGhostInvisibleSend = value
+    // MARK: IAyuGram — the master switch owns the five ghost signals minus any the user
+    // has locked, and invisible send is no longer among them (it delays every message,
+    // so it is its own opt-in). The rules live in IAyuGhost so this switch, the hub and
+    // the home-screen quick action cannot drift apart.
+    items[.iAyuGram]!.append(PeerInfoScreenSwitchItem(id: 0, text: IAyuStrings.text(.settingsGhostSwitch), value: IAyuGhost.isOn, icon: PresentationResourcesSettings.iAyuGhost, isLocked: false, toggled: { value in
+        IAyuGhost.setAll(value)
     }))
     items[.iAyuGram]!.append(PeerInfoScreenDisclosureItem(id: 1, label: .none, text: IAyuStrings.text(.settingsRow), icon: PresentationResourcesSettings.iAyuGram, action: {
         interaction.openSettings(.iAyuGram)
