@@ -457,18 +457,7 @@ public final class ChatListHeaderComponent: Component {
             transition.setPosition(view: self.titleScaleContainer, position: CGPoint(x: size.width * 0.5, y: size.height * 0.5))
             transition.setBounds(view: self.titleScaleContainer, bounds: CGRect(origin: self.titleScaleContainer.bounds.origin, size: size))
             
-            // MARK: IAyuGram — capture-health warning. content.title is computed once at
-            // init so the override cannot live at its source; the other renderer is
-            // overridden in its data (see ChatListController). Deliberately the SAME
-            // string, font and colour as that one: both views can be on screen together,
-            // and identical text centres identically, so they overlap into what looks
-            // like a single title instead of two smeared ones.
-            var titleString = content.title
-            if IAyuCaptureHealth.shared.isDegraded {
-                // DIAGNOSTIC: "P" marks the plain text view as the source.
-                titleString = "P " + IAyuStrings.text(.captureWarningTitle)
-            }
-            let titleText = NSAttributedString(string: titleString, font: Font.semibold(17.0), textColor: theme.rootController.navigationBar.primaryTextColor)
+            let titleText = NSAttributedString(string: content.title, font: Font.semibold(17.0), textColor: theme.rootController.navigationBar.primaryTextColor)
             let titleTextUpdated = self.titleTextView.attributedText != titleText
             self.titleTextView.attributedText = titleText
             
@@ -723,6 +712,14 @@ public final class ChatListHeaderComponent: Component {
             }
             
             self.titleTextView.isHidden = self.chatListTitleView != nil || self.titleContentView != nil
+            // MARK: IAyuGram — the capture warning is carried by the title DATA, which
+            // reaches the richer renderer. This plain view is fed by content.title, a
+            // value fixed at init that the override cannot reach, so while the warning is
+            // up it would draw the ordinary title on top of it — the two were visible
+            // side by side on device, offset by the story-list scroll. Hide it instead.
+            if IAyuCaptureHealth.shared.isDegraded {
+                self.titleTextView.isHidden = true
+            }
             self.centerContentWidth = centerContentWidth
             self.centerContentOffsetX = centerContentOffsetX
             self.centerContentOrigin = centerContentOrigin

@@ -7439,8 +7439,7 @@ private final class ChatListLocationContext {
             // It also lands after the interface language has produced its title, so a
             // custom language pack cannot override it back.
             if IAyuCaptureHealth.shared.isDegraded, !titleContent.activity {
-                // DIAGNOSTIC: "D" marks the data override as the source.
-                titleContent.text = "D " + IAyuStrings.text(.captureWarningTitle)
+                titleContent.text = IAyuStrings.text(.captureWarningTitle)
             }
 
             self.chatListTitle = titleContent
