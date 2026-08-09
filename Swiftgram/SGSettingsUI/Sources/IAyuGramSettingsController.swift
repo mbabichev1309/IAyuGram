@@ -517,21 +517,17 @@ private func iAyuFetchMediaFile(event: IAyuMessageEvent, completion: @escaping (
 // Appearance and Connection-keys screens.
 
 private final class IAyuHubArguments {
-    let toggleHideReadReceipts: (Bool) -> Void
-    let toggleStayOffline: (Bool) -> Void
-    let toggleHideTyping: (Bool) -> Void
-    let toggleHideConsumed: (Bool) -> Void
+    let toggleSignal: (IAyuGhostSignal, Bool) -> Void
+    let toggleLock: (IAyuGhostSignal) -> Void
     let toggleInvisibleSend: (Bool) -> Void
     let pickMediaCap: () -> Void
     let openAppearance: () -> Void
     let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleHideReadReceipts: @escaping (Bool) -> Void, toggleStayOffline: @escaping (Bool) -> Void, toggleHideTyping: @escaping (Bool) -> Void, toggleHideConsumed: @escaping (Bool) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
-        self.toggleHideReadReceipts = toggleHideReadReceipts
-        self.toggleStayOffline = toggleStayOffline
-        self.toggleHideTyping = toggleHideTyping
-        self.toggleHideConsumed = toggleHideConsumed
+    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
+        self.toggleSignal = toggleSignal
+        self.toggleLock = toggleLock
         self.toggleInvisibleSend = toggleInvisibleSend
         self.pickMediaCap = pickMediaCap
         self.openAppearance = openAppearance
@@ -540,8 +536,29 @@ private final class IAyuHubArguments {
     }
 }
 
+// The five ghost signals in display order, with their row titles. Order is fixed here
+// so the entry ids stay stable.
+private let iAyuGhostRows: [(signal: IAyuGhostSignal, key: IAyuStringKey)] = [
+    (.hideReadReceipts, .hubGhostHideReadReceipts),
+    (.stayOffline, .hubGhostStayOffline),
+    (.hideTyping, .hubGhostHideTyping),
+    (.hideConsumed, .hubGhostHideConsumed),
+    (.hideStoryViews, .hubGhostHideStoryViews)
+]
+
+// The padlock shown to the left of a locked signal. Drawn from an SF Symbol rather than
+// a bundled asset: it is the one glyph we need and it already matches the system look.
+private func iAyuLockIcon(locked: Bool, theme: PresentationTheme) -> UIImage? {
+    guard locked else {
+        return nil
+    }
+    let image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+    return generateTintedImage(image: image, color: theme.list.itemSecondaryTextColor)
+}
+
 private enum IAyuHubSection: Int32 {
     case ghost
+    case send
     case media
     case screens
 }
@@ -559,12 +576,13 @@ private func iAyuMediaCapLabel(_ mb: Int32) -> String {
 
 private enum IAyuHubEntry: ItemListNodeEntry {
     case ghostHeader(String)
-    case ghostHideReadReceipts(String, Bool)
-    case ghostStayOffline(String, Bool)
-    case ghostHideTyping(String, Bool)
-    case ghostHideConsumed(String, Bool)
-    case ghostInvisibleSend(String, Bool)
+    // One case for all five signals: index into iAyuGhostRows, title, value, locked.
+    case ghostSignal(Int32, String, Bool, Bool)
     case ghostInfo(String)
+    case ghostLockHint(String)
+    case sendHeader(String)
+    case sendInvisible(String, Bool)
+    case sendInfo(String)
     case mediaHeader(String)
     case mediaCap(String, Int32)
     case mediaInfo(String)
@@ -574,8 +592,10 @@ private enum IAyuHubEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .ghostHeader, .ghostHideReadReceipts, .ghostStayOffline, .ghostHideTyping, .ghostHideConsumed, .ghostInvisibleSend, .ghostInfo:
+        case .ghostHeader, .ghostSignal, .ghostInfo, .ghostLockHint:
             return IAyuHubSection.ghost.rawValue
+        case .sendHeader, .sendInvisible, .sendInfo:
+            return IAyuHubSection.send.rawValue
         case .mediaHeader, .mediaCap, .mediaInfo:
             return IAyuHubSection.media.rawValue
         case .appearance, .localization, .connection:
@@ -586,18 +606,18 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     var stableId: Int32 {
         switch self {
         case .ghostHeader: return 0
-        case .ghostHideReadReceipts: return 1
-        case .ghostStayOffline: return 2
-        case .ghostHideTyping: return 3
-        case .ghostHideConsumed: return 4
-        case .ghostInvisibleSend: return 5
-        case .ghostInfo: return 6
-        case .mediaHeader: return 7
-        case .mediaCap: return 8
-        case .mediaInfo: return 9
-        case .appearance: return 10
-        case .localization: return 11
-        case .connection: return 12
+        case let .ghostSignal(index, _, _, _): return 1 + index
+        case .ghostInfo: return 20
+        case .ghostLockHint: return 21
+        case .sendHeader: return 22
+        case .sendInvisible: return 23
+        case .sendInfo: return 24
+        case .mediaHeader: return 25
+        case .mediaCap: return 26
+        case .mediaInfo: return 27
+        case .appearance: return 28
+        case .localization: return 29
+        case .connection: return 30
         }
     }
 
@@ -609,17 +629,17 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         switch (lhs, rhs) {
         case let (.ghostHeader(a), .ghostHeader(b)):
             return a == b
-        case let (.ghostHideReadReceipts(a1, a2), .ghostHideReadReceipts(b1, b2)):
-            return a1 == b1 && a2 == b2
-        case let (.ghostStayOffline(a1, a2), .ghostStayOffline(b1, b2)):
-            return a1 == b1 && a2 == b2
-        case let (.ghostHideTyping(a1, a2), .ghostHideTyping(b1, b2)):
-            return a1 == b1 && a2 == b2
-        case let (.ghostHideConsumed(a1, a2), .ghostHideConsumed(b1, b2)):
-            return a1 == b1 && a2 == b2
-        case let (.ghostInvisibleSend(a1, a2), .ghostInvisibleSend(b1, b2)):
-            return a1 == b1 && a2 == b2
+        case let (.ghostSignal(a1, a2, a3, a4), .ghostSignal(b1, b2, b3, b4)):
+            return a1 == b1 && a2 == b2 && a3 == b3 && a4 == b4
         case let (.ghostInfo(a), .ghostInfo(b)):
+            return a == b
+        case let (.ghostLockHint(a), .ghostLockHint(b)):
+            return a == b
+        case let (.sendHeader(a), .sendHeader(b)):
+            return a == b
+        case let (.sendInvisible(a1, a2), .sendInvisible(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.sendInfo(a), .sendInfo(b)):
             return a == b
         case let (.mediaHeader(a), .mediaHeader(b)):
             return a == b
@@ -643,27 +663,36 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         switch self {
         case let .ghostHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
-        case let .ghostHideReadReceipts(title, value):
-            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
-                arguments.toggleHideReadReceipts(newValue)
-            })
-        case let .ghostStayOffline(title, value):
-            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
-                arguments.toggleStayOffline(newValue)
-            })
-        case let .ghostHideTyping(title, value):
-            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
-                arguments.toggleHideTyping(newValue)
-            })
-        case let .ghostHideConsumed(title, value):
-            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
-                arguments.toggleHideConsumed(newValue)
-            })
-        case let .ghostInvisibleSend(title, value):
+        case let .ghostSignal(index, title, value, locked):
+            let signal = iAyuGhostRows[Int(index)].signal
+            // The switch changes the signal; tapping the row toggles the lock, and the
+            // padlock in the icon slot is what shows the lock is on. Two actions on one
+            // row is unusual, so the footnote below the section spells it out.
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                icon: iAyuLockIcon(locked: locked, theme: presentationData.theme),
+                title: title,
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { newValue in
+                    arguments.toggleSignal(signal, newValue)
+                },
+                action: {
+                    arguments.toggleLock(signal)
+                }
+            )
+        case let .ghostInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .ghostLockHint(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .sendHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .sendInvisible(title, value):
             return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleInvisibleSend(newValue)
             })
-        case let .ghostInfo(text):
+        case let .sendInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .mediaHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
@@ -690,20 +719,18 @@ private enum IAyuHubEntry: ItemListNodeEntry {
 }
 
 private struct IAyuHubState: Equatable {
-    var hideReadReceipts: Bool
-    var stayOffline: Bool
-    var hideTyping: Bool
-    var hideConsumed: Bool
+    // Indexed by iAyuGhostRows, so adding a signal does not mean adding a field here
+    // and then remembering to wire it in four other places.
+    var signals: [Bool]
+    var locks: [Bool]
     var invisibleSend: Bool
     var mediaCapMB: Int32
 }
 
 public func iAyuGramSettingsController(context: AccountContext) -> ViewController {
     let initialState = IAyuHubState(
-        hideReadReceipts: SGSimpleSettings.shared.iaGhostHideReadReceipts,
-        stayOffline: SGSimpleSettings.shared.iaGhostStayOffline,
-        hideTyping: SGSimpleSettings.shared.iaGhostHideTyping,
-        hideConsumed: SGSimpleSettings.shared.iaGhostHideConsumed,
+        signals: iAyuGhostRows.map { $0.signal.isEnabled },
+        locks: iAyuGhostRows.map { $0.signal.isLocked },
         invisibleSend: SGSimpleSettings.shared.iaGhostInvisibleSend,
         mediaCapMB: SGSimpleSettings.shared.iaMediaMaxDownloadMB
     )
@@ -716,32 +743,23 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
     var pushControllerImpl: ((ViewController) -> Void)?
     var presentControllerImpl: ((ViewController) -> Void)?
 
-    let arguments = IAyuHubArguments(toggleHideReadReceipts: { value in
-        SGSimpleSettings.shared.iaGhostHideReadReceipts = value
+    let arguments = IAyuHubArguments(toggleSignal: { signal, value in
+        signal.setEnabled(value)
         updateState { state in
             var state = state
-            state.hideReadReceipts = value
+            if let index = iAyuGhostRows.firstIndex(where: { $0.signal == signal }) {
+                state.signals[index] = value
+            }
             return state
         }
-    }, toggleStayOffline: { value in
-        SGSimpleSettings.shared.iaGhostStayOffline = value
+    }, toggleLock: { signal in
+        let newValue = !signal.isLocked
+        signal.setLocked(newValue)
         updateState { state in
             var state = state
-            state.stayOffline = value
-            return state
-        }
-    }, toggleHideTyping: { value in
-        SGSimpleSettings.shared.iaGhostHideTyping = value
-        updateState { state in
-            var state = state
-            state.hideTyping = value
-            return state
-        }
-    }, toggleHideConsumed: { value in
-        SGSimpleSettings.shared.iaGhostHideConsumed = value
-        updateState { state in
-            var state = state
-            state.hideConsumed = value
+            if let index = iAyuGhostRows.firstIndex(where: { $0.signal == signal }) {
+                state.locks[index] = newValue
+            }
             return state
         }
     }, toggleInvisibleSend: { value in
@@ -791,12 +809,14 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
     |> map { state, presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
         var entries: [IAyuHubEntry] = []
         entries.append(.ghostHeader(IAyuStrings.text(.hubGhostHeader)))
-        entries.append(.ghostHideReadReceipts(IAyuStrings.text(.hubGhostHideReadReceipts), state.hideReadReceipts))
-        entries.append(.ghostStayOffline(IAyuStrings.text(.hubGhostStayOffline), state.stayOffline))
-        entries.append(.ghostHideTyping(IAyuStrings.text(.hubGhostHideTyping), state.hideTyping))
-        entries.append(.ghostHideConsumed(IAyuStrings.text(.hubGhostHideConsumed), state.hideConsumed))
-        entries.append(.ghostInvisibleSend(IAyuStrings.text(.hubGhostInvisibleSend), state.invisibleSend))
+        for (index, row) in iAyuGhostRows.enumerated() {
+            entries.append(.ghostSignal(Int32(index), IAyuStrings.text(row.key), state.signals[index], state.locks[index]))
+        }
         entries.append(.ghostInfo(IAyuStrings.text(.hubGhostInfo)))
+        entries.append(.ghostLockHint(IAyuStrings.text(.hubGhostLockHint)))
+        entries.append(.sendHeader(IAyuStrings.text(.hubSendHeader)))
+        entries.append(.sendInvisible(IAyuStrings.text(.hubGhostInvisibleSend), state.invisibleSend))
+        entries.append(.sendInfo(IAyuStrings.text(.hubSendInfo)))
         entries.append(.mediaHeader(IAyuStrings.text(.hubMediaHeader)))
         entries.append(.mediaCap(IAyuStrings.text(.hubMediaCap), state.mediaCapMB))
         entries.append(.mediaInfo(IAyuStrings.text(.hubMediaInfo)))

@@ -113,6 +113,12 @@ public class SGSimpleSettings {
         case iaGhostHideTyping
         case iaGhostHideConsumed
         case iaGhostInvisibleSend
+        case iaGhostHideStoryViews
+        case iaGhostLockHideReadReceipts
+        case iaGhostLockStayOffline
+        case iaGhostLockHideTyping
+        case iaGhostLockHideConsumed
+        case iaGhostLockHideStoryViews
         case iaVoiceElapsedTime
         case bottomTabStyle
         case rememberLastFolder
@@ -287,6 +293,12 @@ public class SGSimpleSettings {
         Keys.iaGhostHideTyping.rawValue: false,
         Keys.iaGhostHideConsumed.rawValue: false,
         Keys.iaGhostInvisibleSend.rawValue: false,
+        Keys.iaGhostHideStoryViews.rawValue: false,
+        Keys.iaGhostLockHideReadReceipts.rawValue: false,
+        Keys.iaGhostLockStayOffline.rawValue: false,
+        Keys.iaGhostLockHideTyping.rawValue: false,
+        Keys.iaGhostLockHideConsumed.rawValue: false,
+        Keys.iaGhostLockHideStoryViews.rawValue: false,
         Keys.iaVoiceElapsedTime.rawValue: true,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
@@ -441,6 +453,30 @@ public class SGSimpleSettings {
     // you online. Off by default — it delays your messages. See EnqueueMessage.
     @UserDefault(key: Keys.iaGhostInvisibleSend.rawValue)
     public var iaGhostInvisibleSend: Bool
+
+    // IAyuGram ghost: don't report story views. Cuts BOTH stories.readStories and
+    // stories.incrementStoryViews — leaving either one reports half the views.
+    @UserDefault(key: Keys.iaGhostHideStoryViews.rawValue)
+    public var iaGhostHideStoryViews: Bool
+
+    // IAyuGram ghost locks. A locked signal keeps its own value when the master
+    // switch is toggled, and is excluded from the master's on/off computation —
+    // otherwise one signal locked OFF would pin the master to "off" forever and read
+    // as broken. Invisible send has no lock: it is no longer under the master.
+    @UserDefault(key: Keys.iaGhostLockHideReadReceipts.rawValue)
+    public var iaGhostLockHideReadReceipts: Bool
+
+    @UserDefault(key: Keys.iaGhostLockStayOffline.rawValue)
+    public var iaGhostLockStayOffline: Bool
+
+    @UserDefault(key: Keys.iaGhostLockHideTyping.rawValue)
+    public var iaGhostLockHideTyping: Bool
+
+    @UserDefault(key: Keys.iaGhostLockHideConsumed.rawValue)
+    public var iaGhostLockHideConsumed: Bool
+
+    @UserDefault(key: Keys.iaGhostLockHideStoryViews.rawValue)
+    public var iaGhostLockHideStoryViews: Bool
 
     // IAyuGram: count a playing voice message UP (time elapsed) instead of down
     // (time remaining, which is what stock does). Round videos already count up,

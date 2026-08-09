@@ -3,6 +3,7 @@ import Postbox
 import SwiftSignalKit
 import TelegramApi
 import MtProtoKit
+import SGSimpleSettings
 
 private final class ManagedSynchronizeViewStoriesOperationsHelper {
     var operationDisposables: [PeerId: (Int32, Disposable)] = [:]
@@ -120,6 +121,13 @@ func managedSynchronizeViewStoriesOperations(postbox: Postbox, network: Network,
 
 private func pushStoriesAreSeen(postbox: Postbox, network: Network, stateManager: AccountStateManager, peer: Peer, operation: SynchronizeViewStoriesOperation) -> Signal<Void, NoError> {
     guard let inputPeer = apiInputPeer(peer) else {
+        return .complete()
+    }
+    // MARK: IAyuGram ghost — gate at the network egress, not only where the view is
+    // recorded: an operation queued before the toggle was turned on would otherwise
+    // still be pushed from this queue. Same reason the read-receipt gate lives in
+    // SynchronizePeerReadState rather than in the UI's read action.
+    if SGSimpleSettings.shared.iaGhostHideStoryViews {
         return .complete()
     }
     return network.request(Api.functions.stories.readStories(peer: inputPeer, maxId: operation.storyId))

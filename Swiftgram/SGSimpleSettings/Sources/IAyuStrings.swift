@@ -23,8 +23,12 @@ public enum IAyuStringKey: String, CaseIterable {
     case hubGhostStayOffline
     case hubGhostHideTyping
     case hubGhostHideConsumed
-    case hubGhostInvisibleSend
+    case hubGhostHideStoryViews
     case hubGhostInfo
+    case hubGhostLockHint
+    case hubSendHeader
+    case hubGhostInvisibleSend
+    case hubSendInfo
     case hubMediaHeader
     case hubMediaCap
     case hubMediaCapUnlimited
@@ -110,8 +114,12 @@ public final class IAyuStrings {
         .hubGhostStayOffline: "Stay offline",
         .hubGhostHideTyping: "Don't send typing",
         .hubGhostHideConsumed: "Don't mark voice/video as listened",
+        .hubGhostHideStoryViews: "Don't report story views",
+        .hubGhostLockHint: "Tap a lock to keep that switch from following the master Ghost mode toggle.",
+        .hubSendHeader: "SENDING",
         .hubGhostInvisibleSend: "Invisible send",
-        .hubGhostInfo: "Others won't see your read receipts, online status, typing, or when you play their voice/video messages. Invisible send delays your messages ~12s (sent as scheduled) so sending doesn't show you online — expect the ~12s delay.",
+        .hubSendInfo: "Sends your messages as scheduled about 12 seconds out, so sending does not show you online. Expect that delay on every message. Not part of Ghost mode — it stays as you set it.",
+        .hubGhostInfo: "Others won't see your read receipts, online status, typing, when you play their voice/video messages, or when you view their stories.",
         .hubMediaHeader: "PRESERVED MEDIA",
         .hubMediaCap: "Download limit",
         .hubMediaCapUnlimited: "Unlimited",
@@ -178,8 +186,9 @@ public final class IAyuStrings {
     public static let groups: [(title: String, keys: [IAyuStringKey])] = [
         ("SETTINGS LIST", [.settingsGhostSwitch, .settingsRow]),
         ("HUB", [.hubTitle, .hubGhostHeader, .hubGhostHideReadReceipts, .hubGhostStayOffline,
-                 .hubGhostHideTyping, .hubGhostHideConsumed, .hubGhostInvisibleSend,
-                 .hubGhostInfo, .hubMediaHeader, .hubMediaCap, .hubMediaCapUnlimited,
+                 .hubGhostHideTyping, .hubGhostHideConsumed, .hubGhostHideStoryViews,
+                 .hubGhostInfo, .hubGhostLockHint, .hubSendHeader, .hubGhostInvisibleSend,
+                 .hubSendInfo, .hubMediaHeader, .hubMediaCap, .hubMediaCapUnlimited,
                  .hubMediaInfo, .hubAppearance, .hubLocalization, .hubConnection]),
         ("APPEARANCE", [.appearanceTitle, .appearanceBadgesHeader, .appearanceDeletedBadge,
                         .appearanceEditedBadge, .appearanceBadgesInfo, .appearanceTintDeleted,
@@ -211,6 +220,10 @@ public final class IAyuStrings {
         case .hubGhostStayOffline: return "Stay offline"
         case .hubGhostHideTyping: return "Typing"
         case .hubGhostHideConsumed: return "Consumed"
+        case .hubGhostHideStoryViews: return "Hide story views"
+        case .hubGhostLockHint: return "Lock hint"
+        case .hubSendHeader: return "Sending header"
+        case .hubSendInfo: return "Sending footnote"
         case .hubGhostInvisibleSend: return "Invisible send"
         case .hubGhostInfo: return "Ghost footnote"
         case .hubMediaHeader: return "Media header"
