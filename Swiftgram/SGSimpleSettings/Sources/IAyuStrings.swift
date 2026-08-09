@@ -66,6 +66,9 @@ public enum IAyuStringKey: String, CaseIterable {
     case connectionStatusInvalidURL
     case connectionEventNoContent
 
+    // Capture health — replaces the chat list title while capture is down
+    case captureWarningTitle
+
     // Edit history
     case editHistoryMenuItem
     case editHistoryTitle
@@ -147,6 +150,8 @@ public final class IAyuStrings {
         .connectionStatusInvalidURL: "Live: invalid URL",
         .connectionEventNoContent: "<no content>",
 
+        .captureWarningTitle: "⚠️ Capture down",
+
         .editHistoryMenuItem: "Edit history",
         .editHistoryTitle: "Edit history",
         .editHistoryPreviousHeader: "PREVIOUS VERSIONS",
@@ -186,6 +191,7 @@ public final class IAyuStrings {
                         .connectionStatusConnected, .connectionStatusFailed,
                         .connectionStatusDisconnected, .connectionStatusInvalidURL,
                         .connectionEventNoContent]),
+        ("CAPTURE HEALTH", [.captureWarningTitle]),
         ("EDIT HISTORY", [.editHistoryMenuItem, .editHistoryTitle, .editHistoryPreviousHeader,
                           .editHistoryPreviousHeaderWithBadge, .editHistoryCurrentHeader]),
         ("PRESERVED MEDIA", [.mediaPhoto, .mediaVideo, .mediaVoice, .mediaRound, .mediaAudio,
@@ -241,6 +247,7 @@ public final class IAyuStrings {
         case .connectionStatusDisconnected: return "Disconnected"
         case .connectionStatusInvalidURL: return "Invalid URL"
         case .connectionEventNoContent: return "No content"
+        case .captureWarningTitle: return "Chat list title while capture is down"
         case .editHistoryMenuItem: return "Menu item"
         case .editHistoryTitle: return "Title"
         case .editHistoryPreviousHeader: return "Previous header"
