@@ -457,17 +457,17 @@ public final class ChatListHeaderComponent: Component {
             transition.setPosition(view: self.titleScaleContainer, position: CGPoint(x: size.width * 0.5, y: size.height * 0.5))
             transition.setBounds(view: self.titleScaleContainer, bounds: CGRect(origin: self.titleScaleContainer.bounds.origin, size: size))
             
-            // MARK: IAyuGram — capture-health warning. The chat list header has two title
-            // renderers: this plain text view and ChatListTitleView, and which one is live
-            // depends on the content. Patching only the other one produced no visible
-            // change on device, so the substitution is applied at BOTH render sites.
+            // MARK: IAyuGram — capture-health warning. content.title is computed once at
+            // init so the override cannot live at its source; the other renderer is
+            // overridden in its data (see ChatListController). Deliberately the SAME
+            // string, font and colour as that one: both views can be on screen together,
+            // and identical text centres identically, so they overlap into what looks
+            // like a single title instead of two smeared ones.
             var titleString = content.title
-            var titleColor = theme.rootController.navigationBar.primaryTextColor
             if IAyuCaptureHealth.shared.isDegraded {
                 titleString = IAyuStrings.text(.captureWarningTitle)
-                titleColor = UIColor(rgb: 0xff3b30)
             }
-            let titleText = NSAttributedString(string: titleString, font: Font.semibold(17.0), textColor: titleColor)
+            let titleText = NSAttributedString(string: titleString, font: Font.semibold(17.0), textColor: theme.rootController.navigationBar.primaryTextColor)
             let titleTextUpdated = self.titleTextView.attributedText != titleText
             self.titleTextView.attributedText = titleText
             
@@ -721,16 +721,7 @@ public final class ChatListHeaderComponent: Component {
                 }
             }
             
-            // MARK: IAyuGram — while the capture warning is up it must be the ONLY title.
-            // The header keeps several title renderers alive at once and normally hides
-            // the plain one; on device the warning drew correctly but the richer title
-            // sat on top of it, since that view is added later and so renders above.
-            // Editing the richer renderer had no effect, so the warning is carried by the
-            // plain text view and the others are hidden for as long as it is showing.
-            let iAyuWarningActive = IAyuCaptureHealth.shared.isDegraded
-            self.titleTextView.isHidden = !iAyuWarningActive && (self.chatListTitleView != nil || self.titleContentView != nil)
-            self.chatListTitleView?.isHidden = iAyuWarningActive
-            self.titleContentView?.view?.isHidden = iAyuWarningActive
+            self.titleTextView.isHidden = self.chatListTitleView != nil || self.titleContentView != nil
             self.centerContentWidth = centerContentWidth
             self.centerContentOffsetX = centerContentOffsetX
             self.centerContentOrigin = centerContentOrigin

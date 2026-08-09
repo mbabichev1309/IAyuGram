@@ -7431,8 +7431,19 @@ private final class ChatListLocationContext {
                 self.proxyButton = nil
             }
             
+            // MARK: IAyuGram — capture-health warning, overriding the title in the DATA
+            // rather than in a renderer. The header draws the chat list title through
+            // more than one view and they can be on screen at once, so patching a single
+            // renderer left the untouched one drawn on top of it. Overriding here means
+            // every renderer picks the warning up on its own, with no z-order to fight.
+            // It also lands after the interface language has produced its title, so a
+            // custom language pack cannot override it back.
+            if IAyuCaptureHealth.shared.isDegraded, !titleContent.activity {
+                titleContent.text = IAyuStrings.text(.captureWarningTitle)
+            }
+
             self.chatListTitle = titleContent
-            
+
             if case .chatList(.root) = self.location, checkProxy {
                 if self.proxyUnavailableTooltipController == nil, !self.didShowProxyUnavailableTooltipController, let parentController = self.parentController, parentController.isNodeLoaded, parentController.displayNode.view.window != nil, parentController.navigationController?.topViewController == nil {
                     self.didShowProxyUnavailableTooltipController = true
