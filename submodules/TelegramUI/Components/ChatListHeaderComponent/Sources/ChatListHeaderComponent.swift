@@ -721,7 +721,16 @@ public final class ChatListHeaderComponent: Component {
                 }
             }
             
-            self.titleTextView.isHidden = self.chatListTitleView != nil || self.titleContentView != nil
+            // MARK: IAyuGram — while the capture warning is up it must be the ONLY title.
+            // The header keeps several title renderers alive at once and normally hides
+            // the plain one; on device the warning drew correctly but the richer title
+            // sat on top of it, since that view is added later and so renders above.
+            // Editing the richer renderer had no effect, so the warning is carried by the
+            // plain text view and the others are hidden for as long as it is showing.
+            let iAyuWarningActive = IAyuCaptureHealth.shared.isDegraded
+            self.titleTextView.isHidden = !iAyuWarningActive && (self.chatListTitleView != nil || self.titleContentView != nil)
+            self.chatListTitleView?.isHidden = iAyuWarningActive
+            self.titleContentView?.view?.isHidden = iAyuWarningActive
             self.centerContentWidth = centerContentWidth
             self.centerContentOffsetX = centerContentOffsetX
             self.centerContentOrigin = centerContentOrigin

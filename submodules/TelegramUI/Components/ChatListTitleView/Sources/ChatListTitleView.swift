@@ -11,24 +11,8 @@ import MultiAnimationRenderer
 import TelegramCore
 import ComponentDisplayAdapters
 import AccountContext
-import SGSimpleSettings
 
 private let titleFont = Font.with(size: 17.0, design: .regular, weight: .semibold, traits: [.monospacedNumbers])
-
-// MARK: IAyuGram — capture-health warning.
-//
-// While the companion capture pipeline is down, the chat list title is replaced with our
-// own text instead of a separate marker view. Two reasons: the title node is known to
-// render (it is what draws "Chats" today), whereas an added subview's visibility was not
-// — an earlier red-dot attempt never appeared on device. And substituting here, at the
-// point the string is handed to the node, means a custom interface language cannot
-// override it: whatever text the language pack produced has already been chosen by the
-// time we replace it.
-private let iAyuCaptureWarningColor = UIColor(rgb: 0xff3b30)
-
-private func iAyuCaptureWarningIsActive() -> Bool {
-    return IAyuCaptureHealth.shared.isDegraded
-}
 
 public struct NetworkStatusTitle: Equatable {
     public enum Status: Equatable {
@@ -72,8 +56,6 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
     private let buttonView: HighlightTrackingButton
     private let proxyNode: ChatTitleProxyNode
     private let proxyButton: HighlightTrackingButton
-    // MARK: IAyuGram — capture-health observer.
-    private var iAyuCaptureHealthObserver: NSObjectProtocol?
     private var titleCredibilityIconView: ComponentHostView<Empty>?
     private let animationCache: AnimationCache
     private let animationRenderer: MultiAnimationRenderer
@@ -100,8 +82,8 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         self._title = title
         
         if self._title != oldValue {
-            // MARK: IAyuGram — routed through the helper so the capture warning survives.
-            self.iAyuApplyTitleText()
+            self.titleNode.attributedText = NSAttributedString(string: self.title.text, font: titleFont, textColor: self.theme.rootController.navigationBar.primaryTextColor)
+            self.buttonView.accessibilityLabel = self.title.text
             self.activityIndicator.isHidden = !self.title.activity
            
             self.proxyButton.isHidden = !self.title.hasProxy
@@ -229,9 +211,8 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
     public var theme: PresentationTheme {
         didSet {
             if self.theme !== oldValue {
-                // MARK: IAyuGram — routed through the helper so the capture warning survives.
-                self.iAyuApplyTitleText()
-
+                self.titleNode.attributedText = NSAttributedString(string: self.title.text, font: titleFont, textColor: self.theme.rootController.navigationBar.primaryTextColor)
+                
                 self.lockView.updateTheme(self.theme)
                 
                 self.activityIndicator.type = .custom(self.theme.rootController.navigationBar.primaryTextColor, 22.0, 1.5, false)
@@ -273,8 +254,7 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         
         self.proxyNode = ChatTitleProxyNode(theme: self.theme)
         self.proxyNode.isHidden = true
-
-
+        
         self.buttonView = HighlightTrackingButton()
         self.buttonView.isAccessibilityElement = true
         self.buttonView.accessibilityTraits = .header
@@ -295,12 +275,7 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         self.addSubview(self.lockView)
         self.addSubview(self.buttonView)
         self.addSubview(self.proxyButton)
-
-        // MARK: IAyuGram — follow capture health for the lifetime of the title view.
-        self.iAyuCaptureHealthObserver = NotificationCenter.default.addObserver(forName: IAyuCaptureHealth.changedNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.iAyuApplyTitleText()
-        }
-
+        
         self.buttonView.highligthedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted && !strongSelf.lockView.isHidden && strongSelf.activityIndicator.isHidden {
@@ -343,27 +318,7 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
     required public init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    deinit {
-        if let observer = self.iAyuCaptureHealthObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-    }
-
-    // MARK: IAyuGram — write the title text into the node, substituting our warning while
-    // capture is down. Every path that sets the title goes through here so the
-    // substitution cannot be bypassed by a theme change or a language pack.
-    private func iAyuApplyTitleText() {
-        let isWarning = iAyuCaptureWarningIsActive()
-        let text = isWarning ? IAyuStrings.text(.captureWarningTitle) : self.title.text
-        let color = isWarning ? iAyuCaptureWarningColor : self.theme.rootController.navigationBar.primaryTextColor
-        self.titleNode.attributedText = NSAttributedString(string: text, font: titleFont, textColor: color)
-        self.buttonView.accessibilityLabel = text
-        if let size = self.validLayout {
-            let _ = self.updateLayoutInternal(size: size, transition: .immediate)
-        }
-    }
-
+    
     override public func layoutSubviews() {
         super.layoutSubviews()
         
@@ -393,17 +348,6 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         if !self.activityIndicator.isHidden {
             indicatorPadding = indicatorSize.width + 6.0
         }
-        // MARK: IAyuGram — re-read the health state here rather than trusting that the
-        // change notification was received. Layout runs far more often than the state
-        // changes, so this is self-healing: a missed notification costs at most one pass.
-        // Cheap because it only rewrites the node when the rendered text actually differs.
-        let iAyuExpectedTitle = iAyuCaptureWarningIsActive() ? IAyuStrings.text(.captureWarningTitle) : self.title.text
-        if self.titleNode.attributedText?.string != iAyuExpectedTitle {
-            let color = iAyuCaptureWarningIsActive() ? iAyuCaptureWarningColor : self.theme.rootController.navigationBar.primaryTextColor
-            self.titleNode.attributedText = NSAttributedString(string: iAyuExpectedTitle, font: titleFont, textColor: color)
-            self.buttonView.accessibilityLabel = iAyuExpectedTitle
-        }
-
         var maxTitleWidth = size.width - indicatorPadding
         var proxyPadding: CGFloat = 0.0
         if !self.proxyNode.isHidden {
@@ -419,9 +363,9 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         let combinedHeight = titleSize.height
         
         let combinedWidth = titleSize.width
-
+        
         var titleContentRect = CGRect(origin: CGPoint(x: indicatorPadding + floor((size.width - combinedWidth - indicatorPadding) / 2.0), y: floor((size.height - combinedHeight) / 2.0)), size: titleSize)
-
+        
         titleContentRect.origin.x = min(titleContentRect.origin.x, size.width - proxyPadding - titleContentRect.width)
         
         let titleFrame = titleContentRect
@@ -430,7 +374,7 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
             titleTransition = .immediate
         }
         titleTransition.updateFrame(node: self.titleNode, frame: titleFrame)
-
+        
         let proxyFrame = CGRect(origin: CGPoint(x: size.width - 9.0 - self.proxyNode.bounds.width, y: floor((size.height - self.proxyNode.bounds.height) / 2.0)), size: self.proxyNode.bounds.size)
         self.proxyNode.frame = proxyFrame
         
