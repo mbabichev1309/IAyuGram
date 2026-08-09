@@ -28,6 +28,10 @@ struct IAyuMessageEvent: Codable, Equatable {
     // True if the message was sent by the account owner (outgoing) — so the copy is
     // rendered on the correct side.
     let fromMe: Bool?
+    // Who sent it, as a marked peer id. fromMe alone only says "mine or not", which is
+    // enough for a DM but leaves a group message with no author. Absent for events the
+    // server captured before it recorded senders — those stay attributed to the chat.
+    let senderId: Int64?
     // Media metadata, when the message carried media the server captured. Bytes are
     // fetched separately from GET /media?chat_id=..&message_id=.. .
     let mediaKind: String?
@@ -49,6 +53,7 @@ struct IAyuMessageEvent: Codable, Equatable {
         case oldText = "old_text"
         case date
         case fromMe = "from_me"
+        case senderId = "sender_id"
         case mediaKind = "media_kind"
         case mediaMime = "media_mime"
         case mediaSize = "media_size"
@@ -273,7 +278,12 @@ private func iAyuInsertDeleted(context: AccountContext, event: IAyuMessageEvent,
     var authorId = context.account.peerId
     if !fromMe {
         flags.insert(.Incoming)
-        authorId = peerId
+        // Attribute the copy to whoever actually sent it. In a DM the chat and the
+        // sender are the same peer, but in a group they are not — without a sender the
+        // preserved message was authored by the group itself, which is what the user
+        // saw. Events captured before the server recorded senders have none, so those
+        // keep the old behaviour rather than losing an author entirely.
+        authorId = event.senderId.map { iAyuPeerId(fromServerChatId: $0) } ?? peerId
     }
     // Prefer the original message time so the placeholder lands in place; fall back
     // to now (bottom of the chat) rather than epoch (which would bury it at the top).
@@ -282,25 +292,32 @@ private func iAyuInsertDeleted(context: AccountContext, event: IAyuMessageEvent,
     if let appendedNote = appendedNote {
         text = text.isEmpty ? appendedNote : "\(text)\n\(appendedNote)"
     }
-    let message = StoreMessage(
-        peerId: peerId,
-        namespace: Namespaces.Message.Local,
-        customStableId: nil,
-        globallyUniqueId: nil,
-        groupingKey: nil,
-        threadId: nil,
-        timestamp: timestamp,
-        flags: flags,
-        tags: [],
-        globalTags: [],
-        localTags: [],
-        forwardInfo: nil,
-        authorId: authorId,
-        text: text,
-        attributes: [DeletedMessageAttribute(date: timestamp)],
-        media: media
-    )
     let _ = (context.account.postbox.transaction { transaction -> Void in
+        // The author has to be a peer this database actually knows, or the bubble draws
+        // a blank name. A group member we have never otherwise seen is exactly that
+        // case, and attributing to the chat is a better answer than to nobody.
+        var resolvedAuthorId = authorId
+        if resolvedAuthorId != peerId, transaction.getPeer(resolvedAuthorId) == nil {
+            resolvedAuthorId = peerId
+        }
+        let message = StoreMessage(
+            peerId: peerId,
+            namespace: Namespaces.Message.Local,
+            customStableId: nil,
+            globallyUniqueId: nil,
+            groupingKey: nil,
+            threadId: nil,
+            timestamp: timestamp,
+            flags: flags,
+            tags: [],
+            globalTags: [],
+            localTags: [],
+            forwardInfo: nil,
+            authorId: resolvedAuthorId,
+            text: text,
+            attributes: [DeletedMessageAttribute(date: timestamp)],
+            media: media
+        )
         let _ = transaction.addMessages([message], location: .Random)
     }).start()
 }
