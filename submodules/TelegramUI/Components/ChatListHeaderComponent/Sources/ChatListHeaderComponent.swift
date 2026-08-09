@@ -465,7 +465,8 @@ public final class ChatListHeaderComponent: Component {
             // like a single title instead of two smeared ones.
             var titleString = content.title
             if IAyuCaptureHealth.shared.isDegraded {
-                titleString = IAyuStrings.text(.captureWarningTitle)
+                // DIAGNOSTIC: "P" marks the plain text view as the source.
+                titleString = "P " + IAyuStrings.text(.captureWarningTitle)
             }
             let titleText = NSAttributedString(string: titleString, font: Font.semibold(17.0), textColor: theme.rootController.navigationBar.primaryTextColor)
             let titleTextUpdated = self.titleTextView.attributedText != titleText
