@@ -37,7 +37,7 @@ private enum IAyuConnectionSection: Int32 {
 // CFBundleVersion and there is otherwise no way to tell from the phone which binary is
 // actually installed — which is exactly the ambiguity that stalled the capture-health
 // investigation.
-private let iAyuBuildMarker = "capture-health-title-3"
+private let iAyuBuildMarker = "capture-health-title-4"
 
 private func iAyuCaptureStateDescription(_ state: IAyuCaptureState) -> String {
     switch state {

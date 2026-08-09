@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import Display
+import SGSimpleSettings
 import ComponentFlow
 import TelegramPresentationData
 import AccountContext
@@ -456,7 +457,17 @@ public final class ChatListHeaderComponent: Component {
             transition.setPosition(view: self.titleScaleContainer, position: CGPoint(x: size.width * 0.5, y: size.height * 0.5))
             transition.setBounds(view: self.titleScaleContainer, bounds: CGRect(origin: self.titleScaleContainer.bounds.origin, size: size))
             
-            let titleText = NSAttributedString(string: content.title, font: Font.semibold(17.0), textColor: theme.rootController.navigationBar.primaryTextColor)
+            // MARK: IAyuGram — capture-health warning. The chat list header has two title
+            // renderers: this plain text view and ChatListTitleView, and which one is live
+            // depends on the content. Patching only the other one produced no visible
+            // change on device, so the substitution is applied at BOTH render sites.
+            var titleString = content.title
+            var titleColor = theme.rootController.navigationBar.primaryTextColor
+            if IAyuCaptureHealth.shared.isDegraded {
+                titleString = IAyuStrings.text(.captureWarningTitle)
+                titleColor = UIColor(rgb: 0xff3b30)
+            }
+            let titleText = NSAttributedString(string: titleString, font: Font.semibold(17.0), textColor: titleColor)
             let titleTextUpdated = self.titleTextView.attributedText != titleText
             self.titleTextView.attributedText = titleText
             
