@@ -16,7 +16,7 @@ import TelegramStringFormatting
 import ChatTimerScreen
 import NotificationPeerExceptionController
 import SGSimpleSettings
-import SGSettingsUI
+import SGChatExceptionsUI
 
 func archiveContextMenuItems(context: AccountContext, group: EngineChatList.Group, chatListController: ChatListControllerImpl?) -> Signal<[ContextMenuItem], NoError> {
     let presentationData = context.sharedContext.currentPresentationData.with({ $0 })
