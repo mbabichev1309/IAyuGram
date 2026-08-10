@@ -165,12 +165,14 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, cha
         if let chatLocation, let peerId = chatLocation.peerId {
             let inlineBots: Signal<[(EnginePeer, Double)], NoError> = types.contains(.contextBots) ? context.engine.peers.recentlyUsedInlineBots() : .single([])
             let strings = context.sharedContext.currentPresentationData.with({ $0 }).strings
-            // MARK: IAyuGram — as in ChatInterfaceStateContextQueries: for a bare "@" don't make
-            // the panel wait on the member lookup, and leave a typed query untouched.
-            let memberSearch = searchPeerMembers(context: context, peerId: peerId, chatLocation: chatLocation, query: query, scope: .mention)
-            let members: Signal<[EnginePeer], NoError> = query.isEmpty
-                ? Signal<[EnginePeer], NoError>.single([]) |> then(memberSearch)
-                : memberSearch
+            // MARK: IAyuGram — the empty-list seeding used in ChatInterfaceStateContextQueries
+            // must NOT be repeated here. It emits synchronously on subscription, and this
+            // panel lives inside ComponentFlow: the result then arrives during a layout
+            // pass, updates state, and re-enters ComponentView._update, tripping its
+            // precondition(!isUpdating) — a hard crash on typing "@" in a photo caption,
+            // reproducible every time. The chat input has no such re-entrancy, which is
+            // why the same seeding is safe there and why the fix it makes stays.
+            let members = searchPeerMembers(context: context, peerId: peerId, chatLocation: chatLocation, query: query, scope: .mention)
             let participants = combineLatest(inlineBots, members)
             |> map { inlineBots, peers -> (ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult? in
                 let filteredInlineBots = inlineBots.sorted(by: { $0.1 > $1.1 }).filter { peer, rating in
