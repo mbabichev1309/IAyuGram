@@ -15,6 +15,8 @@ import TelegramPresentationData
 import TelegramStringFormatting
 import ChatTimerScreen
 import NotificationPeerExceptionController
+import SGSimpleSettings
+import SGSettingsUI
 
 func archiveContextMenuItems(context: AccountContext, group: EngineChatList.Group, chatListController: ChatListControllerImpl?) -> Signal<[ContextMenuItem], NoError> {
     let presentationData = context.sharedContext.currentPresentationData.with({ $0 })
@@ -542,6 +544,17 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                             }
                         }
                         
+                        // MARK: IAyuGram — per-chat exceptions, reachable by long-pressing
+                        // the chat in the list. Placed just above the destructive actions
+                        // so it sits with the other per-chat settings rather than next to
+                        // Delete.
+                        items.append(.action(ContextMenuActionItem(text: IAyuStrings.text(.chatExceptionsMenuItem), icon: { theme in
+                            return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Info"), color: theme.contextMenu.primaryColor)
+                        }, action: { _, f in
+                            chatListController?.push(iAyuChatExceptionsController(context: context, peerId: peerId))
+                            f(.default)
+                        })))
+
                         let appendDeleteOrUngroupItem = {
                             if case .community = peer {
                                 items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_Ungroup, textColor: .destructive, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Ungroup"), color: theme.contextMenu.destructiveColor) }, action: { _, f in
