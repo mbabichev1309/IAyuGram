@@ -133,9 +133,32 @@ jobs:
           echo "Found ipa at: $IPA_PATH"
           cp "$IPA_PATH" "$OUTPUT_PATH/Telegram-signed.ipa"
 
+          # 5) collect dSYMs alongside it. Swift symbols are stripped from the shipped
+          # binaries, so a device crash report is just hex offsets without these — which
+          # is exactly the wall a real crash hit once, with no way back from the .ips to
+          # a function name. Zipped because a dSYM is a bundle (a directory).
+          DSYM_ZIP="$OUTPUT_PATH/dSYMs.zip"
+          DSYMS=$(find -L bazel-out -type d -name '*.dSYM' ! -path '*.runfiles/*' | head -n 40)
+          if [ -n "$DSYMS" ]; then
+            echo "$DSYMS" | while read -r d; do echo "dSYM: $d"; done
+            # -y stores the symlinks rather than following them, keeping the zip small.
+            echo "$DSYMS" | xargs -I{} zip -q -r -y "$DSYM_ZIP" {} || true
+          else
+            echo "No dSYMs found — crash reports from this build will not be symbolicable."
+          fi
+
       - name: Upload signed ipa
         uses: actions/upload-artifact@v4
         with:
           name: Telegram-signed-ipa
           path: /Users/Shared/telegram-ios/build/artifacts/*.ipa
           if-no-files-found: error
+
+      - name: Upload dSYMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: dSYMs
+          path: /Users/Shared/telegram-ios/build/artifacts/dSYMs.zip
+          # Warn rather than fail: a missing dSYM makes crashes harder to read, it does
+          # not make the build invalid.
+          if-no-files-found: warn
