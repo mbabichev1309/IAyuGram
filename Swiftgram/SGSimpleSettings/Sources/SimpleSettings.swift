@@ -114,6 +114,7 @@ public class SGSimpleSettings {
         case iaGhostHideConsumed
         case iaGhostInvisibleSend
         case iaGhostHideStoryViews
+        case iaRestoreOwnDeletes
         case iaGhostLockHideReadReceipts
         case iaGhostLockStayOffline
         case iaGhostLockHideTyping
@@ -294,6 +295,7 @@ public class SGSimpleSettings {
         Keys.iaGhostHideConsumed.rawValue: false,
         Keys.iaGhostInvisibleSend.rawValue: false,
         Keys.iaGhostHideStoryViews.rawValue: false,
+        Keys.iaRestoreOwnDeletes.rawValue: true,
         Keys.iaGhostLockHideReadReceipts.rawValue: false,
         Keys.iaGhostLockStayOffline.rawValue: false,
         Keys.iaGhostLockHideTyping.rawValue: false,
@@ -458,6 +460,11 @@ public class SGSimpleSettings {
     // stories.incrementStoryViews — leaving either one reports half the views.
     @UserDefault(key: Keys.iaGhostHideStoryViews.rawValue)
     public var iaGhostHideStoryViews: Bool
+
+    // IAyuGram: when I delete my OWN message for everyone, bring it back in the chat?
+    // On by default, which is the behaviour that existed before the toggle.
+    @UserDefault(key: Keys.iaRestoreOwnDeletes.rawValue)
+    public var iaRestoreOwnDeletes: Bool
 
     // IAyuGram ghost locks. A locked signal keeps its own value when the master
     // switch is toggled, and is excluded from the master's on/off computation —

@@ -255,7 +255,7 @@ private func pushPeerReadState(network: Network, postbox: Postbox, stateManager:
                     // IAyuGram ghost mode: don't push our read position to the server
                     // (no "seen" mark for others, and reading won't bump us online).
                     var pushSignal: Signal<Void, NoError>
-                    if SGSimpleSettings.shared.iaGhostHideReadReceipts {
+                    if IAyuGhost.applies(.hideReadReceipts, peerId: peerId.toInt64()) {
                         pushSignal = .complete()
                     } else {
                         pushSignal = network.request(Api.functions.channels.readHistory(channel: Api.InputChannel.inputChannel(.init(channelId: channelId, accessHash: accessHash)), maxId: maxIncomingReadId))
@@ -291,7 +291,7 @@ private func pushPeerReadState(network: Network, postbox: Postbox, stateManager:
                 case let .idBased(maxIncomingReadId, _, _, _, markedUnread):
                     // IAyuGram ghost mode: skip the readHistory push (see above).
                     let readHistoryRequest: Signal<Api.messages.AffectedMessages?, NoError>
-                    if SGSimpleSettings.shared.iaGhostHideReadReceipts {
+                    if IAyuGhost.applies(.hideReadReceipts, peerId: peerId.toInt64()) {
                         readHistoryRequest = .single(nil)
                     } else {
                         readHistoryRequest = network.request(Api.functions.messages.readHistory(peer: inputPeer, maxId: maxIncomingReadId))

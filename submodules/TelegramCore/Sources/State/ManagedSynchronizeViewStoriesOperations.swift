@@ -127,7 +127,7 @@ private func pushStoriesAreSeen(postbox: Postbox, network: Network, stateManager
     // recorded: an operation queued before the toggle was turned on would otherwise
     // still be pushed from this queue. Same reason the read-receipt gate lives in
     // SynchronizePeerReadState rather than in the UI's read action.
-    if SGSimpleSettings.shared.iaGhostHideStoryViews {
+    if IAyuGhost.applies(.hideStoryViews, peerId: peer.id.toInt64()) {
         return .complete()
     }
     return network.request(Api.functions.stories.readStories(peer: inputPeer, maxId: operation.storyId))

@@ -2090,7 +2090,7 @@ func _internal_markStoryAsSeen(account: Account, peerId: PeerId, id: Int32, asPi
             // MARK: IAyuGram ghost — don't report the view. This is the pinned-story
             // path; the other one goes through stories.readStories, and BOTH have to be
             // cut or half the views are still reported.
-            if SGSimpleSettings.shared.iaGhostHideStoryViews {
+            if IAyuGhost.applies(.hideStoryViews, peerId: peerId.toInt64()) {
                 return .complete()
             }
 
@@ -2114,7 +2114,7 @@ func _internal_markStoryAsSeen(account: Account, peerId: PeerId, id: Int32, asPi
             // the ring still clears for us; only the operation that would push
             // stories.readStories to the server is skipped. Same shape as the consumed
             // (voice/video) gate: mark read locally, tell the network nothing.
-            if !SGSimpleSettings.shared.iaGhostHideStoryViews {
+            if !IAyuGhost.applies(.hideStoryViews, peerId: peerId.toInt64()) {
                 _internal_addSynchronizeViewStoriesOperation(peerId: peerId, storyId: id, transaction: transaction)
             }
             #endif

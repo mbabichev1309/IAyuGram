@@ -42,7 +42,7 @@ func _internal_markMessageContentAsConsumedInteractively(postbox: Postbox, messa
                             // IAyuGram ghost mode: don't tell the server we consumed
                             // (listened to / watched) the content, so the sender isn't
                             // notified. The local UI still marks it consumed.
-                            if !SGSimpleSettings.shared.iaGhostHideConsumed {
+                            if !IAyuGhost.applies(.hideConsumed, peerId: message.id.peerId.toInt64()) {
                                 addSynchronizeConsumeMessageContentsOperation(transaction: transaction, messageIds: [message.id])
                             }
                         }

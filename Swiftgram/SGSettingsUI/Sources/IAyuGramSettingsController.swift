@@ -520,15 +520,17 @@ private final class IAyuHubArguments {
     let toggleSignal: (IAyuGhostSignal, Bool) -> Void
     let toggleLock: (IAyuGhostSignal) -> Void
     let toggleInvisibleSend: (Bool) -> Void
+    let toggleRestoreOwnDeletes: (Bool) -> Void
     let pickMediaCap: () -> Void
     let openAppearance: () -> Void
     let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleSignal = toggleSignal
         self.toggleLock = toggleLock
         self.toggleInvisibleSend = toggleInvisibleSend
+        self.toggleRestoreOwnDeletes = toggleRestoreOwnDeletes
         self.pickMediaCap = pickMediaCap
         self.openAppearance = openAppearance
         self.openLocalization = openLocalization
@@ -559,6 +561,7 @@ private func iAyuLockIcon(locked: Bool, theme: PresentationTheme) -> UIImage? {
 private enum IAyuHubSection: Int32 {
     case ghost
     case send
+    case preserve
     case media
     case screens
 }
@@ -583,6 +586,9 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case sendHeader(String)
     case sendInvisible(String, Bool)
     case sendInfo(String)
+    case preserveHeader(String)
+    case restoreOwnDeletes(String, Bool)
+    case preserveInfo(String)
     case mediaHeader(String)
     case mediaCap(String, Int32)
     case mediaInfo(String)
@@ -596,6 +602,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return IAyuHubSection.ghost.rawValue
         case .sendHeader, .sendInvisible, .sendInfo:
             return IAyuHubSection.send.rawValue
+        case .preserveHeader, .restoreOwnDeletes, .preserveInfo:
+            return IAyuHubSection.preserve.rawValue
         case .mediaHeader, .mediaCap, .mediaInfo:
             return IAyuHubSection.media.rawValue
         case .appearance, .localization, .connection:
@@ -612,6 +620,9 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .sendHeader: return 22
         case .sendInvisible: return 23
         case .sendInfo: return 24
+        case .preserveHeader: return 24_1
+        case .restoreOwnDeletes: return 24_2
+        case .preserveInfo: return 24_3
         case .mediaHeader: return 25
         case .mediaCap: return 26
         case .mediaInfo: return 27
@@ -640,6 +651,12 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let (.sendInvisible(a1, a2), .sendInvisible(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.sendInfo(a), .sendInfo(b)):
+            return a == b
+        case let (.preserveHeader(a), .preserveHeader(b)):
+            return a == b
+        case let (.restoreOwnDeletes(a1, a2), .restoreOwnDeletes(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.preserveInfo(a), .preserveInfo(b)):
             return a == b
         case let (.mediaHeader(a), .mediaHeader(b)):
             return a == b
@@ -694,6 +711,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             })
         case let .sendInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .preserveHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .restoreOwnDeletes(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleRestoreOwnDeletes(newValue)
+            })
+        case let .preserveInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .mediaHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .mediaCap(title, mb):
@@ -724,6 +749,7 @@ private struct IAyuHubState: Equatable {
     var signals: [Bool]
     var locks: [Bool]
     var invisibleSend: Bool
+    var restoreOwnDeletes: Bool
     var mediaCapMB: Int32
 }
 
@@ -732,6 +758,7 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         signals: iAyuGhostRows.map { $0.signal.isEnabled },
         locks: iAyuGhostRows.map { $0.signal.isLocked },
         invisibleSend: SGSimpleSettings.shared.iaGhostInvisibleSend,
+        restoreOwnDeletes: SGSimpleSettings.shared.iaRestoreOwnDeletes,
         mediaCapMB: SGSimpleSettings.shared.iaMediaMaxDownloadMB
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -767,6 +794,13 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         updateState { state in
             var state = state
             state.invisibleSend = value
+            return state
+        }
+    }, toggleRestoreOwnDeletes: { value in
+        SGSimpleSettings.shared.iaRestoreOwnDeletes = value
+        updateState { state in
+            var state = state
+            state.restoreOwnDeletes = value
             return state
         }
     }, pickMediaCap: {
@@ -817,6 +851,9 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.sendHeader(IAyuStrings.text(.hubSendHeader)))
         entries.append(.sendInvisible(IAyuStrings.text(.hubGhostInvisibleSend), state.invisibleSend))
         entries.append(.sendInfo(IAyuStrings.text(.hubSendInfo)))
+        entries.append(.preserveHeader(IAyuStrings.text(.hubPreserveHeader)))
+        entries.append(.restoreOwnDeletes(IAyuStrings.text(.hubRestoreOwnDeletes), state.restoreOwnDeletes))
+        entries.append(.preserveInfo(IAyuStrings.text(.hubPreserveInfo)))
         entries.append(.mediaHeader(IAyuStrings.text(.hubMediaHeader)))
         entries.append(.mediaCap(IAyuStrings.text(.hubMediaCap), state.mediaCapMB))
         entries.append(.mediaInfo(IAyuStrings.text(.hubMediaInfo)))
