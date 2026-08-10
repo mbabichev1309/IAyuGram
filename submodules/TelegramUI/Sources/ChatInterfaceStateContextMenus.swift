@@ -1595,20 +1595,6 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             })))
         }
 
-        // IAyuGram: per-chat exceptions for ghost mode and preservation.
-        //
-        // Placed in this submenu rather than the chat header's "..." because that menu
-        // is three separate builders keyed on chat type (saved messages / bot-forum /
-        // channel), so a single entry point there would mean touching all three. This
-        // one is reachable from any message in the chat and is easy to move later.
-        let iaExceptionsPeerId = message.id.peerId
-        sgActions.append(.action(ContextMenuActionItem(text: IAyuStrings.text(.chatExceptionsMenuItem), icon: { theme in
-            return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Info"), color: theme.actionSheet.primaryTextColor)
-        }, action: { _, f in
-            controllerInteraction.navigationController()?.pushViewController(iAyuChatExceptionsController(context: context, peerId: iaExceptionsPeerId))
-            f(.default)
-        })))
-
         var threadId: Int64?
         var threadMessageCount: Int = 0
         if case .peer = chatPresentationInterfaceState.chatLocation, let channel = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramChannel, case .group = channel.info {
