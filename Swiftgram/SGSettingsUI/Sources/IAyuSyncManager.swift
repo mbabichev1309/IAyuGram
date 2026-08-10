@@ -213,14 +213,38 @@ public final class IAyuSyncManager {
                 // gap), and this stops it from inserting a second placeholder.
                 let peerId = iAyuPeerId(fromServerChatId: event.chatId).toInt64()
                 if !IAyuMaterializedDeletesStore.shared.contains(peerId: peerId, messageId: event.messageId) {
+                    // Mark it seen even when we skip it. The dedup store's job is "this
+                    // event has been dealt with"; leaving it out would make every
+                    // gap-sync re-offer the same skipped delete forever, and turning an
+                    // exception off later would then dump a backlog of old messages into
+                    // the chat.
                     IAyuMaterializedDeletesStore.shared.insert(peerId: peerId, messageId: event.messageId)
-                    iAyuMaterializeDeleted(context: self.context, event: event)
+                    if self.shouldMaterialize(event: event, peerId: peerId) {
+                        iAyuMaterializeDeleted(context: self.context, event: event)
+                    }
                 }
             } else if event.kind == "edited" {
                 self.applyEdit(event)  // IAyuEditHistoryStore dedups by cursor persistently
             }
             self.advancePersistedCursor()
         }
+    }
+
+    // Whether this delete should be brought back into the chat. Both answers are
+    // display-only: the companion server has already captured and stored the message
+    // either way, so turning an exception off later shows nothing retroactively but the
+    // content is still on the server and reachable through /gap-sync.
+    private func shouldMaterialize(event: IAyuMessageEvent, peerId: Int64) -> Bool {
+        guard IAyuPeerExceptions.preservationApplies(peerId: peerId) else {
+            return false
+        }
+        // "When I delete my own message for everyone, restore it in the chat?" — off
+        // means our own deletes stay deleted, which is what someone who deletes a
+        // message on purpose usually wants; others' deletes are unaffected.
+        if event.fromMe == true, !SGSimpleSettings.shared.iaRestoreOwnDeletes {
+            return false
+        }
+        return true
     }
 
     // Advance the persisted cursor only along the CONTIGUOUS processed prefix. If a

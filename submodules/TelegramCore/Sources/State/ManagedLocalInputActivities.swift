@@ -145,7 +145,7 @@ private func actionFromActivity(_ activity: PeerInputActivity?) -> Api.SendMessa
 private func requestActivity(postbox: Postbox, network: Network, accountPeerId: PeerId, peerId: PeerId, threadId: Int64?, activity: PeerInputActivity?) -> Signal<Void, NoError> {
     return postbox.transaction { transaction -> Signal<Void, NoError> in
         // IAyuGram ghost mode: don't broadcast typing/recording activity.
-        if SGSimpleSettings.shared.iaGhostHideTyping {
+        if IAyuGhost.applies(.hideTyping, peerId: peerId.toInt64()) {
             return .complete()
         }
         if let peer = transaction.getPeer(peerId) {

@@ -78,6 +78,25 @@ public enum IAyuGhost {
         return governed.allSatisfy { $0.isEnabled }
     }
 
+    /// Whether a signal should be suppressed for this chat.
+    ///
+    /// Every per-chat seam asks exactly this, so the rule lives here rather than being
+    /// spelled out at each one — the same reasoning as iAyuInvisibleSendApplies.
+    ///
+    /// `stayOffline` ignores per-chat exceptions on purpose: online is an account-level
+    /// flag in Telegram, so there is no such thing as being online for one conversation
+    /// and offline for another, and pretending otherwise here would be a lie the
+    /// settings screen could not honour.
+    public static func applies(_ signal: IAyuGhostSignal, peerId: Int64) -> Bool {
+        guard signal.isEnabled else {
+            return false
+        }
+        if signal == .stayOffline {
+            return true
+        }
+        return IAyuPeerExceptions.ghostApplies(peerId: peerId)
+    }
+
     /// Apply the master switch, leaving locked signals untouched.
     public static func setAll(_ value: Bool) {
         for signal in IAyuGhostSignal.allCases where !signal.isLocked {

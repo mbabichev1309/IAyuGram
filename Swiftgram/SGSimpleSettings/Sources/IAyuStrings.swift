@@ -29,6 +29,17 @@ public enum IAyuStringKey: String, CaseIterable {
     case hubSendHeader
     case hubGhostInvisibleSend
     case hubSendInfo
+    case hubPreserveHeader
+    case hubRestoreOwnDeletes
+    case hubPreserveInfo
+
+    // Per-chat exceptions
+    case chatExceptionsMenuItem
+    case chatExceptionsTitle
+    case chatExceptionsGhostDisabled
+    case chatExceptionsGhostInfo
+    case chatExceptionsPreservationDisabled
+    case chatExceptionsPreservationInfo
     case hubMediaHeader
     case hubMediaCap
     case hubMediaCapUnlimited
@@ -118,6 +129,17 @@ public final class IAyuStrings {
         .hubGhostLockHint: "Tap a lock to keep that switch from following the master Ghost mode toggle.",
         .hubSendHeader: "SENDING",
         .hubGhostInvisibleSend: "Invisible send",
+        .hubPreserveHeader: "PRESERVED MESSAGES",
+        .hubRestoreOwnDeletes: "Restore my own deletions",
+        .hubPreserveInfo: "When you delete your own message for everyone, bring it back in the chat. Off means your own deletions stay deleted; messages other people delete are unaffected either way.",
+
+        .chatExceptionsMenuItem: "IAyuGram in this chat",
+        .chatExceptionsTitle: "IAyuGram in this chat",
+        .chatExceptionsGhostDisabled: "Turn Ghost mode off here",
+        .chatExceptionsGhostInfo: "Read receipts, typing, played voice/video and story views are reported normally in this chat. \"Stay offline\" is not included — online is an account-wide flag, so it cannot differ per chat.",
+        .chatExceptionsPreservationDisabled: "Don't restore deleted messages here",
+        .chatExceptionsPreservationInfo: "Deleted messages in this chat are not brought back. They are still captured and stored on your companion server — this hides them, it does not stop recording them.",
+
         .hubSendInfo: "Sends your messages as scheduled about 12 seconds out, so sending does not show you online. Expect that delay on every message. Not part of Ghost mode — it stays as you set it.",
         .hubGhostInfo: "Others won't see your read receipts, online status, typing, when you play their voice/video messages, or when you view their stories.",
         .hubMediaHeader: "PRESERVED MEDIA",
@@ -188,7 +210,7 @@ public final class IAyuStrings {
         ("HUB", [.hubTitle, .hubGhostHeader, .hubGhostHideReadReceipts, .hubGhostStayOffline,
                  .hubGhostHideTyping, .hubGhostHideConsumed, .hubGhostHideStoryViews,
                  .hubGhostInfo, .hubGhostLockHint, .hubSendHeader, .hubGhostInvisibleSend,
-                 .hubSendInfo, .hubMediaHeader, .hubMediaCap, .hubMediaCapUnlimited,
+                 .hubSendInfo, .hubPreserveHeader, .hubRestoreOwnDeletes, .hubPreserveInfo, .hubMediaHeader, .hubMediaCap, .hubMediaCapUnlimited,
                  .hubMediaInfo, .hubAppearance, .hubLocalization, .hubConnection]),
         ("APPEARANCE", [.appearanceTitle, .appearanceBadgesHeader, .appearanceDeletedBadge,
                         .appearanceEditedBadge, .appearanceBadgesInfo, .appearanceTintDeleted,
@@ -201,6 +223,9 @@ public final class IAyuStrings {
                         .connectionStatusDisconnected, .connectionStatusInvalidURL,
                         .connectionEventNoContent]),
         ("CAPTURE HEALTH", [.captureWarningTitle]),
+        ("PER-CHAT EXCEPTIONS", [.chatExceptionsMenuItem, .chatExceptionsTitle,
+                                 .chatExceptionsGhostDisabled, .chatExceptionsGhostInfo,
+                                 .chatExceptionsPreservationDisabled, .chatExceptionsPreservationInfo]),
         ("EDIT HISTORY", [.editHistoryMenuItem, .editHistoryTitle, .editHistoryPreviousHeader,
                           .editHistoryPreviousHeaderWithBadge, .editHistoryCurrentHeader]),
         ("PRESERVED MEDIA", [.mediaPhoto, .mediaVideo, .mediaVoice, .mediaRound, .mediaAudio,
@@ -224,6 +249,15 @@ public final class IAyuStrings {
         case .hubGhostLockHint: return "Lock hint"
         case .hubSendHeader: return "Sending header"
         case .hubSendInfo: return "Sending footnote"
+        case .hubPreserveHeader: return "Preserved header"
+        case .hubRestoreOwnDeletes: return "Restore own deletions"
+        case .hubPreserveInfo: return "Preserved footnote"
+        case .chatExceptionsMenuItem: return "Chat menu item"
+        case .chatExceptionsTitle: return "Screen title"
+        case .chatExceptionsGhostDisabled: return "Ghost off here"
+        case .chatExceptionsGhostInfo: return "Ghost footnote"
+        case .chatExceptionsPreservationDisabled: return "No restore here"
+        case .chatExceptionsPreservationInfo: return "Preservation footnote"
         case .hubGhostInvisibleSend: return "Invisible send"
         case .hubGhostInfo: return "Ghost footnote"
         case .hubMediaHeader: return "Media header"
