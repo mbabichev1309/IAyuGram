@@ -19,6 +19,22 @@ private struct IAyuGapSyncResponse: Codable {
 
 private let iAyuGapSyncPageLimit = 500
 
+// Deleting a whole chat delivers one event per message — a few thousand of them, as
+// fast as the socket can carry them. The three constants below are what keeps that
+// from taking the app down:
+//
+// How long a batch is allowed to accumulate before it is written. One postbox
+// transaction per message meant one history-view recomputation per message; short
+// enough that a single ordinary delete still appears immediately.
+private let iAyuMaterializeFlushDelay = 0.35
+// Write early once this many are queued, so a very long burst is committed in
+// steady-sized chunks instead of growing one enormous transaction.
+private let iAyuMaterializeFlushThreshold = 200
+// Preserved media is fetched over HTTP and then written into the media box; letting
+// every delete in a mass deletion start its own download at once meant hundreds of
+// concurrent transfers and, for a media-heavy chat, gigabytes in flight.
+private let iAyuMaxConcurrentMediaFetches = 3
+
 // How long the live socket may stay down before it is reported as an outage. Long
 // enough to cover a reconnect (backoff caps at 60s) and a walk through a dead spot,
 // short enough that a genuinely dead server is noticed the same day.
@@ -42,14 +58,40 @@ public final class IAyuSyncManager {
     private let context: AccountContext
     private var liveSession: IAyuLiveSession?
     private var active = true
-    // Cursors seen this session, so an event that arrives on both /live and the
+    // Events are handled here rather than on the main queue: a mass deletion is
+    // thousands of events, and the work (dedup bookkeeping, deciding what to fetch,
+    // opening transactions) has no reason to compete with the UI. Everything below
+    // marked "sync queue" is touched only from here. Capture health, the reconnect
+    // backoff and the degrade timer stay on main.
+    private let queue = Queue(name: "org.iayugram.sync", qos: .utility)
+    // Cursors fully dealt with, so an event that arrives on both /live and the
     // gap-sync backfill isn't processed twice, and so the persisted cursor can be
     // advanced only along a contiguous prefix (no gaps → no missed events on crash).
+    // Sync queue.
     private var processedCursors = Set<Int>()
+    // Cursors accepted but not yet committed — buffered for the next batch write, or
+    // waiting on a media download. They are deliberately NOT in processedCursors, so
+    // the persisted cursor stalls behind them and a kill mid-batch re-delivers them
+    // next launch instead of losing them. Sync queue.
+    private var pendingCursors = Set<Int>()
+    // (peerId, messageId) of the buffered events, for the same reason the persistent
+    // dedup store exists — the two paths can offer the same delete inside one window,
+    // before it has been recorded as materialized. Sync queue.
+    private var pendingKeys = Set<String>()
+    private var pendingItems: [IAyuPendingDelete] = []
+    private var pendingMediaFetches: [IAyuMessageEvent] = []
+    private var activeMediaFetches = 0
+    private var flushScheduled = false
+    // The persisted cursor, in memory. Writing it to UserDefaults per event was one
+    // more per-message cost on a path that gets thousands of messages at once; it is
+    // written once per flush now.
+    private var cursor = 0
+    private var cursorDirty = false
     private var serverURL = ""
     private var token = ""
     private var reconnectDelay = 5.0
     private var foregroundObserver: NSObjectProtocol?
+    private var backgroundObserver: NSObjectProtocol?
     // Capture-health tracking (see IAyuCaptureHealth). The socket dropping is not by
     // itself worth a warning — reconnects are routine, and iOS kills the socket on every
     // backgrounding. Only a drop that outlives the grace period means something is wrong.
@@ -64,13 +106,24 @@ public final class IAyuSyncManager {
         self.foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.onForeground()
         }
+        // A buffered batch is normally committed within a fraction of a second, but
+        // backgrounding is when the app is most likely to be killed outright — write
+        // what is waiting rather than betting on the timer.
+        self.backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self else { return }
+            self.queue.async {
+                self.flush()
+            }
+        }
     }
 
     deinit {
         self.active = false
         self.liveSession?.stop()
-        if let observer = self.foregroundObserver {
-            NotificationCenter.default.removeObserver(observer)
+        for observer in [self.foregroundObserver, self.backgroundObserver] {
+            if let observer = observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
 
@@ -85,6 +138,10 @@ public final class IAyuSyncManager {
         // Assume healthy until something actually fails, so a cold launch never flashes
         // a warning before the first connection has had a chance to complete.
         IAyuCaptureHealth.shared.update(.healthy)
+        let storedCursor = Int(SGSimpleSettings.shared.iaSyncCursor)
+        self.queue.async {
+            self.cursor = storedCursor
+        }
         // Connect live first so events firing during the gap-sync fetch aren't lost;
         // the cursor dedup below drops any that both paths deliver.
         self.connectLive()
@@ -201,32 +258,119 @@ public final class IAyuSyncManager {
     }
 
     private func handle(_ event: IAyuMessageEvent) {
-        Queue.mainQueue().async {
+        self.queue.async {
             guard self.active else { return }
-            if self.processedCursors.contains(event.cursor) {
+            if self.processedCursors.contains(event.cursor) || self.pendingCursors.contains(event.cursor) {
                 return
             }
-            self.processedCursors.insert(event.cursor)
             if event.kind == "deleted" {
-                // Persistent dedup by peerId+messageId: gap-sync can re-deliver an
-                // already-applied delete across launches (when the cursor lags a
-                // gap), and this stops it from inserting a second placeholder.
-                let peerId = iAyuPeerId(fromServerChatId: event.chatId).toInt64()
-                if !IAyuMaterializedDeletesStore.shared.contains(peerId: peerId, messageId: event.messageId) {
-                    // Mark it seen even when we skip it. The dedup store's job is "this
-                    // event has been dealt with"; leaving it out would make every
-                    // gap-sync re-offer the same skipped delete forever, and turning an
-                    // exception off later would then dump a backlog of old messages into
-                    // the chat.
-                    IAyuMaterializedDeletesStore.shared.insert(peerId: peerId, messageId: event.messageId)
-                    if self.shouldMaterialize(event: event, peerId: peerId) {
-                        iAyuMaterializeDeleted(context: self.context, event: event)
-                    }
-                }
+                self.accept(delete: event)
             } else if event.kind == "edited" {
                 self.applyEdit(event)  // IAyuEditHistoryStore dedups by cursor persistently
+                self.settle(cursor: event.cursor)
+            } else {
+                self.settle(cursor: event.cursor)
             }
-            self.advancePersistedCursor()
+            self.scheduleFlush()
+        }
+    }
+
+    // Take a delete into the buffer, or drop it if it has already been dealt with.
+    // Sync queue.
+    private func accept(delete event: IAyuMessageEvent) {
+        // Persistent dedup by peerId+messageId: gap-sync can re-deliver an already-
+        // applied delete across launches (when the cursor lags a gap), and this stops
+        // it from inserting a second placeholder.
+        let peerId = iAyuPeerId(fromServerChatId: event.chatId).toInt64()
+        let key = "\(peerId):\(event.messageId)"
+        if self.pendingKeys.contains(key) || IAyuMaterializedDeletesStore.shared.contains(peerId: peerId, messageId: event.messageId) {
+            self.settle(cursor: event.cursor)
+            return
+        }
+        guard self.shouldMaterialize(event: event, peerId: peerId) else {
+            // Mark it seen even though we skip it. The dedup store's job is "this event
+            // has been dealt with"; leaving it out would make every gap-sync re-offer
+            // the same skipped delete forever, and turning an exception off later would
+            // then dump a backlog of old messages into the chat.
+            IAyuMaterializedDeletesStore.shared.insert(peerId: peerId, messageId: event.messageId)
+            self.settle(cursor: event.cursor)
+            return
+        }
+        // From here the event is ours to write. It is recorded as materialized only
+        // once it actually has been (in flush), so a kill in between re-delivers it
+        // rather than marking a message we never inserted as done.
+        self.pendingKeys.insert(key)
+        self.pendingCursors.insert(event.cursor)
+        switch iAyuMaterializePlan(event: event) {
+        case let .ready(note):
+            self.pendingItems.append(IAyuPendingDelete(event: event, appendedNote: note))
+        case .needsMedia:
+            self.pendingMediaFetches.append(event)
+            self.pumpMediaFetches()
+        }
+    }
+
+    // This cursor needs nothing further. Sync queue.
+    private func settle(cursor: Int) {
+        self.pendingCursors.remove(cursor)
+        self.processedCursors.insert(cursor)
+        self.advanceCursor()
+    }
+
+    private func scheduleFlush() {
+        if self.pendingItems.count >= iAyuMaterializeFlushThreshold {
+            self.flush()
+            return
+        }
+        guard !self.flushScheduled else {
+            return
+        }
+        self.flushScheduled = true
+        self.queue.after(iAyuMaterializeFlushDelay, { [weak self] in
+            guard let self = self, self.active else { return }
+            self.flush()
+        })
+    }
+
+    // Commit the buffer: one transaction for every message waiting, then the cursor.
+    // Sync queue.
+    private func flush() {
+        self.flushScheduled = false
+        if !self.pendingItems.isEmpty {
+            let items = self.pendingItems
+            self.pendingItems = []
+            iAyuInsertDeleted(context: self.context, items: items)
+            for item in items {
+                let peerId = iAyuPeerId(fromServerChatId: item.event.chatId).toInt64()
+                IAyuMaterializedDeletesStore.shared.insert(peerId: peerId, messageId: item.event.messageId)
+                self.pendingKeys.remove("\(peerId):\(item.event.messageId)")
+                self.pendingCursors.remove(item.event.cursor)
+                self.processedCursors.insert(item.event.cursor)
+            }
+            self.advanceCursor()
+        }
+        if self.cursorDirty {
+            self.cursorDirty = false
+            SGSimpleSettings.shared.iaSyncCursor = Int32(clamping: self.cursor)
+        }
+    }
+
+    // Start as many queued media downloads as the concurrency budget allows. Sync
+    // queue; each completion comes back here to free its slot and take the next.
+    private func pumpMediaFetches() {
+        while self.activeMediaFetches < iAyuMaxConcurrentMediaFetches, !self.pendingMediaFetches.isEmpty {
+            let event = self.pendingMediaFetches.removeFirst()
+            self.activeMediaFetches += 1
+            iAyuFetchAndBuildMedia(context: self.context, event: event) { [weak self] item in
+                guard let self = self else { return }
+                self.queue.async {
+                    self.activeMediaFetches -= 1
+                    guard self.active else { return }
+                    self.pendingItems.append(item)
+                    self.pumpMediaFetches()
+                    self.scheduleFlush()
+                }
+            }
         }
     }
 
@@ -247,20 +391,21 @@ public final class IAyuSyncManager {
         return true
     }
 
-    // Advance the persisted cursor only along the CONTIGUOUS processed prefix. If a
-    // later event (e.g. live cursor 105) is processed while an earlier one (100) is
-    // still in flight, the cursor stays put until the gap fills — so a crash never
-    // skips 100. On the next launch gap-sync re-fetches from the persisted point and
-    // the dedup above/edit store drop anything already applied. Must run on the main
-    // queue (called only from handle()).
-    private func advancePersistedCursor() {
-        var cursor = Int(SGSimpleSettings.shared.iaSyncCursor)
+    // Advance the cursor only along the CONTIGUOUS processed prefix. If a later event
+    // (e.g. live cursor 105) is processed while an earlier one (100) is still buffered
+    // or waiting on its media, the cursor stays put until the gap fills — so a crash
+    // never skips 100. On the next launch gap-sync re-fetches from the persisted point
+    // and the dedup store/edit store drop anything already applied. The write itself
+    // happens in flush(). Sync queue.
+    private func advanceCursor() {
+        var cursor = self.cursor
         while self.processedCursors.contains(cursor + 1) {
             cursor += 1
         }
-        if cursor > Int(SGSimpleSettings.shared.iaSyncCursor) {
-            SGSimpleSettings.shared.iaSyncCursor = Int32(clamping: cursor)
-            // Cursors at/below the persisted point are settled — drop them to keep
+        if cursor > self.cursor {
+            self.cursor = cursor
+            self.cursorDirty = true
+            // Cursors at/below the settled point need no tracking — drop them to keep
             // the in-memory set bounded (re-delivery is caught by the persistent dedup).
             self.processedCursors = self.processedCursors.filter { $0 > cursor }
         }
@@ -314,12 +459,19 @@ public final class IAyuSyncManager {
                 // up to maxReceived (not the server's latest) so a delete racing in
                 // between the query's two statements isn't skipped — it re-syncs next
                 // launch or arrives on /live.
-                Queue.mainQueue().async {
+                self.queue.async {
                     guard self.active else { return }
-                    if maxReceived > Int(SGSimpleSettings.shared.iaSyncCursor) {
-                        SGSimpleSettings.shared.iaSyncCursor = Int32(clamping: maxReceived)
-                        self.processedCursors = self.processedCursors.filter { $0 > maxReceived }
+                    // Never past something still buffered or downloading, for the same
+                    // reason the contiguous advance exists.
+                    let firstPending = self.pendingCursors.min()
+                    let ceiling = firstPending.map { $0 - 1 } ?? maxReceived
+                    let target = min(maxReceived, ceiling)
+                    if target > self.cursor {
+                        self.cursor = target
+                        self.cursorDirty = true
+                        self.processedCursors = self.processedCursors.filter { $0 > target }
                     }
+                    self.scheduleFlush()
                 }
             }
         }
