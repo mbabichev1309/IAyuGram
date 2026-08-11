@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // IAyuGram: one preserved version of an edited message (text as it was BEFORE that
 // edit), captured from the companion server.
@@ -25,13 +26,30 @@ public final class IAyuMaterializedDeletesStore {
     private let defaults = UserDefaults.standard
     private let storageKey = "iaMaterializedDeletes"
     private let cap = 8000
+    // Persisting is debounced rather than immediate: writing the whole array back on
+    // every insert means encoding up to `cap` strings per event, which turned "a chat
+    // with two thousand messages was deleted" into minutes of blocked main thread.
+    // The in-memory set is what answers contains(), so nothing depends on the write
+    // having landed yet — a crash inside the window costs at most a duplicate
+    // placeholder for the events it lost.
+    private let persistDelay = 1.0
+    private let queue = DispatchQueue(label: "org.iayugram.materializedDeletes")
+    // Reads and writes now come off the main queue (IAyuSyncManager has its own), so
+    // the collections need a lock.
+    private let lock = NSLock()
     private var order: [String]
     private var present: Set<String>
+    private var persistScheduled = false
 
     private init() {
         let stored = UserDefaults.standard.stringArray(forKey: "iaMaterializedDeletes") ?? []
         self.order = stored
         self.present = Set(stored)
+        // Backgrounding is the realistic prelude to being killed, so close the debounce
+        // window there instead of hoping the timer fires first.
+        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.persist()
+        }
     }
 
     private func key(peerId: Int64, messageId: Int64) -> String {
@@ -39,12 +57,17 @@ public final class IAyuMaterializedDeletesStore {
     }
 
     public func contains(peerId: Int64, messageId: Int64) -> Bool {
-        return self.present.contains(self.key(peerId: peerId, messageId: messageId))
+        let k = self.key(peerId: peerId, messageId: messageId)
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.present.contains(k)
     }
 
     public func insert(peerId: Int64, messageId: Int64) {
         let k = self.key(peerId: peerId, messageId: messageId)
+        self.lock.lock()
         if self.present.contains(k) {
+            self.lock.unlock()
             return
         }
         self.present.insert(k)
@@ -56,7 +79,29 @@ public final class IAyuMaterializedDeletesStore {
             }
             self.order.removeFirst(removeCount)
         }
-        self.defaults.set(self.order, forKey: self.storageKey)
+        let needsSchedule = !self.persistScheduled
+        self.persistScheduled = true
+        self.lock.unlock()
+
+        if needsSchedule {
+            self.queue.asyncAfter(deadline: .now() + self.persistDelay) { [weak self] in
+                self?.persist()
+            }
+        }
+    }
+
+    // Write the current keys out. Safe to call at any time and from any queue; a no-op
+    // when nothing has changed since the last write.
+    public func persist() {
+        self.lock.lock()
+        guard self.persistScheduled else {
+            self.lock.unlock()
+            return
+        }
+        self.persistScheduled = false
+        let snapshot = self.order
+        self.lock.unlock()
+        self.defaults.set(snapshot, forKey: self.storageKey)
     }
 }
 

@@ -208,12 +208,35 @@ private let iAyuKnownMediaKinds: Set<String> = [
     "photo", "sticker", "voice", "round", "video", "gif", "audio", "document",
 ]
 
-func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
-    guard let kind = event.mediaKind, iAyuKnownMediaKinds.contains(kind) else {
-        iAyuInsertDeleted(context: context, event: event, media: [])
-        return
-    }
+// One preserved delete, ready to be written into Postbox. Media (if any) has already
+// been fetched and stored in the media box by the time an item exists.
+struct IAyuPendingDelete {
+    let event: IAyuMessageEvent
+    let media: [Media]
+    let appendedNote: String?
 
+    init(event: IAyuMessageEvent, media: [Media] = [], appendedNote: String? = nil) {
+        self.event = event
+        self.media = media
+        self.appendedNote = appendedNote
+    }
+}
+
+// What has to happen before an event can be materialized, decided without touching
+// the network — so a caller draining a mass delete can insert everything cheap at
+// once and pace only the downloads.
+enum IAyuMaterializePlan {
+    // Nothing to download: insert straight away, carrying an optional note in place
+    // of media we deliberately skipped.
+    case ready(String?)
+    // Bytes have to come from the server's /media first.
+    case needsMedia
+}
+
+func iAyuMaterializePlan(event: IAyuMessageEvent) -> IAyuMaterializePlan {
+    guard let kind = event.mediaKind, iAyuKnownMediaKinds.contains(kind) else {
+        return .ready(nil)
+    }
     // Phase 2 lifted the server-side size limit, so a delete can now point at a
     // multi-hundred-megabyte video. Downloading that unasked would be hostile, so
     // respect a client-side budget: past it, preserve the message as text with a
@@ -221,17 +244,27 @@ func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
     // limit later still recovers them via gap-sync.
     let limitBytes = Int(SGSimpleSettings.shared.iaMediaMaxDownloadMB) * 1024 * 1024
     if let size = event.mediaSize, limitBytes > 0, size > limitBytes {
-        iAyuInsertDeleted(
-            context: context,
-            event: event,
-            media: [],
-            appendedNote: iAyuSkippedMediaNote(event: event, size: size)
-        )
-        return
+        return .ready(iAyuSkippedMediaNote(event: event, size: size))
     }
+    return .needsMedia
+}
 
-    // Fetch to a temp file first, then insert the message with the media attached. If
-    // the fetch fails we still insert the text placeholder so the delete is visible.
+func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
+    switch iAyuMaterializePlan(event: event) {
+    case let .ready(note):
+        iAyuInsertDeleted(context: context, items: [IAyuPendingDelete(event: event, appendedNote: note)])
+    case .needsMedia:
+        iAyuFetchAndBuildMedia(context: context, event: event) { item in
+            iAyuInsertDeleted(context: context, items: [item])
+        }
+    }
+}
+
+// Fetch an event's media to a temp file and turn it into Postbox media, calling back
+// with an item ready to insert. A failed fetch still yields an item (without media),
+// so the delete stays visible either way. The callback runs on a background queue.
+func iAyuFetchAndBuildMedia(context: AccountContext, event: IAyuMessageEvent, completion: @escaping (IAyuPendingDelete) -> Void) {
+    let kind = event.mediaKind ?? ""
     iAyuFetchMediaFile(event: event) { path, size in
         var media: [Media] = []
         let postbox = context.account.postbox
@@ -254,7 +287,7 @@ func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
                 try? FileManager.default.removeItem(atPath: path)
             }
         }
-        iAyuInsertDeleted(context: context, event: event, media: media)
+        completion(IAyuPendingDelete(event: event, media: media))
     }
 }
 
@@ -275,14 +308,36 @@ private func iAyuSkippedMediaNote(event: IAyuMessageEvent, size: Int) -> String 
     return IAyuStrings.text(.mediaSkippedNote, ["kind": label, "size": "\(megabytes)"])
 }
 
-private func iAyuInsertDeleted(context: AccountContext, event: IAyuMessageEvent, media: [Media], appendedNote: String? = nil) {
+// Insert preserved deletes. Everything handed in goes into ONE postbox transaction:
+// a transaction per message is what made deleting a whole chat unusable, because each
+// commit re-runs the history view and the chat-list counters, so a few hundred deletes
+// meant a few hundred full view recomputations back to back.
+func iAyuInsertDeleted(context: AccountContext, items: [IAyuPendingDelete]) {
+    if items.isEmpty {
+        return
+    }
+    let accountPeerId = context.account.peerId
+    let _ = (context.account.postbox.transaction { transaction -> Void in
+        let messages = items.map { item in
+            iAyuDeletedStoreMessage(item: item, accountPeerId: accountPeerId, transaction: transaction)
+        }
+        let _ = transaction.addMessages(messages, location: .Random)
+    }).start()
+}
+
+// Build the synthetic local message for one preserved delete. Takes the transaction
+// because resolving the author needs a database lookup.
+private func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, transaction: Transaction) -> StoreMessage {
+    let event = item.event
+    let media = item.media
+    let appendedNote = item.appendedNote
     let peerId = iAyuPeerId(fromServerChatId: event.chatId)
     // Render on the correct side: the server tells us whether WE sent the original
     // (from_me). Outgoing → author is us, no Incoming flag. Incoming → author is the
     // DM partner (for groups/channels we don't know the exact sender, best-effort).
     let fromMe = event.fromMe ?? false
     var flags = StoreMessageFlags()
-    var authorId = context.account.peerId
+    var authorId = accountPeerId
     if !fromMe {
         flags.insert(.Incoming)
         // Attribute the copy to whoever actually sent it. In a DM the chat and the
@@ -299,34 +354,31 @@ private func iAyuInsertDeleted(context: AccountContext, event: IAyuMessageEvent,
     if let appendedNote = appendedNote {
         text = text.isEmpty ? appendedNote : "\(text)\n\(appendedNote)"
     }
-    let _ = (context.account.postbox.transaction { transaction -> Void in
-        // The author has to be a peer this database actually knows, or the bubble draws
-        // a blank name. A group member we have never otherwise seen is exactly that
-        // case, and attributing to the chat is a better answer than to nobody.
-        var resolvedAuthorId = authorId
-        if resolvedAuthorId != peerId, transaction.getPeer(resolvedAuthorId) == nil {
-            resolvedAuthorId = peerId
-        }
-        let message = StoreMessage(
-            peerId: peerId,
-            namespace: Namespaces.Message.Local,
-            customStableId: nil,
-            globallyUniqueId: nil,
-            groupingKey: nil,
-            threadId: nil,
-            timestamp: timestamp,
-            flags: flags,
-            tags: [],
-            globalTags: [],
-            localTags: [],
-            forwardInfo: nil,
-            authorId: resolvedAuthorId,
-            text: text,
-            attributes: [DeletedMessageAttribute(date: timestamp)],
-            media: media
-        )
-        let _ = transaction.addMessages([message], location: .Random)
-    }).start()
+    // The author has to be a peer this database actually knows, or the bubble draws
+    // a blank name. A group member we have never otherwise seen is exactly that
+    // case, and attributing to the chat is a better answer than to nobody.
+    var resolvedAuthorId = authorId
+    if resolvedAuthorId != peerId, transaction.getPeer(resolvedAuthorId) == nil {
+        resolvedAuthorId = peerId
+    }
+    return StoreMessage(
+        peerId: peerId,
+        namespace: Namespaces.Message.Local,
+        customStableId: nil,
+        globallyUniqueId: nil,
+        groupingKey: nil,
+        threadId: nil,
+        timestamp: timestamp,
+        flags: flags,
+        tags: [],
+        globalTags: [],
+        localTags: [],
+        forwardInfo: nil,
+        authorId: resolvedAuthorId,
+        text: text,
+        attributes: [DeletedMessageAttribute(date: timestamp)],
+        media: media
+    )
 }
 
 // Build a local-image media from downloaded bytes: write the bytes into the media
