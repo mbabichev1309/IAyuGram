@@ -35,6 +35,32 @@ private let iAyuMaterializeFlushThreshold = 200
 // concurrent transfers and, for a media-heavy chat, gigabytes in flight.
 private let iAyuMaxConcurrentMediaFetches = 3
 
+// A delete arriving within this long of the previous one in the same chat belongs to
+// the same burst, and a burst quiet for this long is over. It is also how long a
+// delete can be held back while we decide whether it is part of a mass deletion —
+// the FIRST delete in a chat is always materialized immediately, so an ordinary one
+// is never delayed; only the second and later ones wait for the verdict.
+private let iAyuBurstIdleWindow = 1.5
+// A collapsed batch is closed (and its summary posted) at this many messages even if
+// deletes keep arriving, so a slow wipe shows something instead of nothing.
+private let iAyuBurstBatchCap = 500
+
+// A run of deletes in one chat, while we work out whether it is somebody clearing a
+// message or somebody clearing the chat.
+private struct IAyuDeleteBurst {
+    let chatId: Int64
+    var lastArrival: Double
+    var lastEventDate: Int32?
+    // Held back pending the verdict; empty once it is in.
+    var held: [IAyuMessageEvent] = []
+    // Set once the burst is judged a mass deletion. From then on its messages go
+    // into the batch store instead of into the chat.
+    var batch: IAyuDeletedBatchKey?
+    var collapsedCount = 0
+    // Milliseconds, only ever used to make the batch id unique within the chat.
+    let startedAtMilliseconds: Int64
+}
+
 // How long the live socket may stay down before it is reported as an outage. Long
 // enough to cover a reconnect (backoff caps at 60s) and a walk through a dead spot,
 // short enough that a genuinely dead server is noticed the same day.
@@ -82,6 +108,10 @@ public final class IAyuSyncManager {
     private var pendingMediaFetches: [IAyuMessageEvent] = []
     private var activeMediaFetches = 0
     private var flushScheduled = false
+    // Per-chat delete bursts, and which of them already have an idle check pending.
+    // Sync queue.
+    private var bursts: [Int64: IAyuDeleteBurst] = [:]
+    private var burstChecksScheduled = Set<Int64>()
     // The persisted cursor, in memory. Writing it to UserDefaults per event was one
     // more per-message cost on a path that gets thousands of messages at once; it is
     // written once per flush now.
@@ -112,6 +142,7 @@ public final class IAyuSyncManager {
         self.backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self = self else { return }
             self.queue.async {
+                self.closeAllBursts()
                 self.flush()
             }
         }
@@ -301,6 +332,52 @@ public final class IAyuSyncManager {
         // rather than marking a message we never inserted as done.
         self.pendingKeys.insert(key)
         self.pendingCursors.insert(event.cursor)
+
+        let threshold = Int(SGSimpleSettings.shared.iaMassDeleteCollapse)
+        guard threshold > 0 else {
+            self.materialize(event)
+            return
+        }
+        let now = CFAbsoluteTimeGetCurrent()
+        guard var burst = self.bursts[peerId] else {
+            // First delete in this chat for a while: it goes into the chat right away,
+            // which is what makes an ordinary single deletion feel immediate. The burst
+            // it opens is what makes the next one wait for a verdict.
+            self.bursts[peerId] = IAyuDeleteBurst(chatId: event.chatId, lastArrival: now, lastEventDate: event.date.map { Int32(clamping: $0) }, startedAtMilliseconds: Int64(now * 1000.0))
+            self.scheduleBurstCheck(peerId: peerId)
+            self.materialize(event)
+            return
+        }
+        burst.lastArrival = now
+        if let date = event.date.map({ Int32(clamping: $0) }) {
+            burst.lastEventDate = max(burst.lastEventDate ?? date, date)
+        }
+        if let batch = burst.batch {
+            self.collapse(event: event, peerId: peerId, key: key, batch: batch)
+            burst.collapsedCount += 1
+            if burst.collapsedCount >= iAyuBurstBatchCap {
+                // Long wipe: post what we have and start a fresh batch, rather than
+                // holding a summary back until the deleting finally stops.
+                self.closeBurst(peerId: peerId, burst: burst)
+                return
+            }
+            self.bursts[peerId] = burst
+            self.scheduleBurstCheck(peerId: peerId)
+            return
+        }
+        burst.held.append(event)
+        // The already-materialized first delete of the burst counts towards the verdict
+        // even though the summary can't cover it.
+        if burst.held.count + 1 >= threshold {
+            self.startCollapsing(peerId: peerId, burst: &burst)
+        }
+        self.bursts[peerId] = burst
+        self.scheduleBurstCheck(peerId: peerId)
+    }
+
+    // Write this delete into the chat: straight away if there is nothing to download,
+    // otherwise once its media has been fetched. Sync queue.
+    private func materialize(_ event: IAyuMessageEvent) {
         switch iAyuMaterializePlan(event: event) {
         case let .ready(note):
             self.pendingItems.append(IAyuPendingDelete(event: event, appendedNote: note))
@@ -308,6 +385,80 @@ public final class IAyuSyncManager {
             self.pendingMediaFetches.append(event)
             self.pumpMediaFetches()
         }
+    }
+
+    // Put this delete in the batch store instead of the chat. Nothing is downloaded:
+    // a wiped chat's media would be hundreds of megabytes nobody asked for, and the
+    // bytes stay on the server, so restoring one message later still recovers it.
+    private func collapse(event: IAyuMessageEvent, peerId: Int64, key: String, batch: IAyuDeletedBatchKey) {
+        IAyuDeletedBatchStore.shared.append(key: batch, event: event)
+        IAyuMaterializedDeletesStore.shared.insert(peerId: peerId, messageId: event.messageId)
+        self.pendingKeys.remove(key)
+        self.settle(cursor: event.cursor)
+    }
+
+    // The verdict came in: this is a mass deletion. Everything held goes into a batch
+    // of its own, and the rest of the burst follows it. Sync queue.
+    private func startCollapsing(peerId: Int64, burst: inout IAyuDeleteBurst) {
+        let batch = IAyuDeletedBatchKey(peerId: peerId, batchId: burst.startedAtMilliseconds)
+        burst.batch = batch
+        for event in burst.held {
+            self.collapse(event: event, peerId: peerId, key: "\(peerId):\(event.messageId)", batch: batch)
+        }
+        burst.collapsedCount = burst.held.count
+        burst.held = []
+    }
+
+    // Sync queue. Re-arms itself while deletes keep arriving.
+    private func scheduleBurstCheck(peerId: Int64) {
+        guard !self.burstChecksScheduled.contains(peerId) else {
+            return
+        }
+        self.burstChecksScheduled.insert(peerId)
+        self.queue.after(iAyuBurstIdleWindow, { [weak self] in
+            guard let self = self, self.active else { return }
+            self.burstChecksScheduled.remove(peerId)
+            guard let burst = self.bursts[peerId] else {
+                return
+            }
+            if CFAbsoluteTimeGetCurrent() - burst.lastArrival >= iAyuBurstIdleWindow - 0.05 {
+                self.closeBurst(peerId: peerId, burst: burst)
+            } else {
+                self.scheduleBurstCheck(peerId: peerId)
+            }
+        })
+    }
+
+    // The burst is over (or has hit the batch cap). Sync queue.
+    private func closeBurst(peerId: Int64, burst: IAyuDeleteBurst) {
+        self.bursts.removeValue(forKey: peerId)
+        if let batch = burst.batch {
+            IAyuDeletedBatchStore.shared.close(key: batch)
+            if burst.collapsedCount > 0 {
+                self.pendingItems.append(iAyuMassDeletePlaqueItem(
+                    key: batch,
+                    chatId: burst.chatId,
+                    count: burst.collapsedCount,
+                    timestamp: burst.lastEventDate
+                ))
+                self.scheduleFlush()
+            }
+        } else if !burst.held.isEmpty {
+            // Not a mass deletion after all — an ordinary handful. Bring them back.
+            for event in burst.held {
+                self.materialize(event)
+            }
+            self.scheduleFlush()
+        }
+    }
+
+    // Sync queue. Called when the app backgrounds: an open burst holds messages that
+    // exist nowhere else yet, so decide it now rather than betting on coming back.
+    private func closeAllBursts() {
+        for (peerId, burst) in self.bursts {
+            self.closeBurst(peerId: peerId, burst: burst)
+        }
+        IAyuDeletedBatchStore.shared.closeAll()
     }
 
     // This cursor needs nothing further. Sync queue.

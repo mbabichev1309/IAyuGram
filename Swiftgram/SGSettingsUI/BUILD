@@ -30,6 +30,9 @@ swift_library(
         "//submodules/TelegramPresentationData:TelegramPresentationData",
         "//submodules/TelegramUIPreferences:TelegramUIPreferences",
         "//submodules/ItemListUI:ItemListUI",
+        # IAyuGram: EnabledEntityTypes, for the multiline rows on the collapsed
+        # mass-deletion screen.
+        "//submodules/TextFormat:TextFormat",
         "//submodules/PresentationDataUtils:PresentationDataUtils",
         "//submodules/OverlayStatusController:OverlayStatusController",
         "//submodules/AccountContext:AccountContext",
