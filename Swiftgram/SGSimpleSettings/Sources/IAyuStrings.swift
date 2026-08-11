@@ -116,6 +116,10 @@ public enum IAyuStringKey: String, CaseIterable {
     case massDeleteRestored
     case massDeleteShowMore
     case massDeleteMissing
+    case massDeleteCollapseExisting
+    case massDeleteCollapseExistingConfirm
+    case massDeleteCollapseExistingNothing
+    case massDeleteCollapseExistingDone
 
     // Home-screen quick action
     case shortcutGhostTitle
@@ -226,6 +230,10 @@ public final class IAyuStrings {
         .massDeleteRestored: "Restored into the chat",
         .massDeleteShowMore: "Show more",
         .massDeleteMissing: "These messages are no longer stored on this device.",
+        .massDeleteCollapseExisting: "Collapse preserved deletions",
+        .massDeleteCollapseExistingConfirm: "Collapse {count} preserved messages in this chat into a single summary? Nothing is lost — they stay readable from the summary, with their media, and can be restored one at a time.",
+        .massDeleteCollapseExistingNothing: "There are no preserved deleted messages in this chat.",
+        .massDeleteCollapseExistingDone: "{count} messages collapsed into a summary.",
 
         .shortcutGhostTitle: "Ghost mode",
         .shortcutGhostSubtitle: "Enter with all signals hidden",
@@ -262,7 +270,9 @@ public final class IAyuStrings {
         ("MASS DELETIONS", [.hubMassDeleteHeader, .hubMassDeleteThreshold, .hubMassDeleteNever,
                             .hubMassDeleteInfo, .massDeletePlaque, .massDeleteShowAll,
                             .massDeleteTitle, .massDeleteHeader, .massDeleteFromMe, .massDeleteRestore,
-                            .massDeleteRestored, .massDeleteShowMore, .massDeleteMissing]),
+                            .massDeleteRestored, .massDeleteShowMore, .massDeleteMissing,
+                            .massDeleteCollapseExisting, .massDeleteCollapseExistingConfirm,
+                            .massDeleteCollapseExistingNothing, .massDeleteCollapseExistingDone]),
         ("QUICK ACTION", [.shortcutGhostTitle, .shortcutGhostSubtitle]),
         ("MY PROFILE", [.myProfileStatusGhost])
     ]
@@ -355,6 +365,10 @@ public final class IAyuStrings {
         case .massDeleteRestored: return "Restored label"
         case .massDeleteShowMore: return "Show more"
         case .massDeleteMissing: return "Missing batch"
+        case .massDeleteCollapseExisting: return "Collapse existing"
+        case .massDeleteCollapseExistingConfirm: return "Collapse confirm"
+        case .massDeleteCollapseExistingNothing: return "Nothing to collapse"
+        case .massDeleteCollapseExistingDone: return "Collapse done"
         case .shortcutGhostTitle: return "Title"
         case .shortcutGhostSubtitle: return "Subtitle"
         case .myProfileStatusGhost: return "Ghost status"

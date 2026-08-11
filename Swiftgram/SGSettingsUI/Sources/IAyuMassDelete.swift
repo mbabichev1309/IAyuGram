@@ -1,6 +1,7 @@
 import Foundation
 import Postbox
 import TelegramCore
+import AccountContext
 import SGSimpleSettings
 
 // IAyuGram: the summary message a collapsed mass deletion leaves in the chat, and the
@@ -68,7 +69,24 @@ func iAyuMassDeletePlaqueItem(key: IAyuDeletedBatchKey, chatId: Int64, count: In
         mediaHeight: nil,
         mediaDuration: nil,
         mediaViewOnce: nil,
-        mediaFileName: nil
+        mediaFileName: nil,
+        mediaBlob: nil
     )
     return IAyuPendingDelete(event: event, extraAttributes: [TextEntitiesMessageAttribute(entities: [entity])])
+}
+
+// Bring one archived message back into the chat. Two sources, one action: an entry
+// captured live names a server message whose media is still on the companion server
+// and is fetched now, while an entry made by collapsing what was already in the chat
+// carries its media with it and needs nothing.
+func iAyuRestoreArchived(context: AccountContext, event: IAyuMessageEvent) {
+    guard let blob = event.mediaBlob, let data = Data(base64Encoded: blob) else {
+        iAyuMaterializeDeleted(context: context, event: event)
+        return
+    }
+    var media: [Media] = []
+    if let decoded = PostboxDecoder(buffer: MemoryBuffer(data: data)).decodeRootObject() as? Media {
+        media = [decoded]
+    }
+    iAyuInsertDeleted(context: context, items: [IAyuPendingDelete(event: event, media: media)])
 }
