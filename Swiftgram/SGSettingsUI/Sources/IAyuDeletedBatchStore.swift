@@ -142,22 +142,25 @@ final class IAyuDeletedBatchStore {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
-    // Which messages of the batch the user has already brought back, so the list can
-    // say so instead of offering to insert a second copy.
-    func restoredIds(key: IAyuDeletedBatchKey) -> Set<Int64> {
+    // Which entries of the batch the user has already brought back, so the list can say
+    // so instead of offering to insert a second copy. Kept by POSITION in the file, not
+    // by message id: entries archived from messages that were already in the chat have
+    // no server id left, so they all carry 0 and one restore would mark every one of
+    // them. The file is append-only, so a position never means something else later.
+    func restoredIndices(key: IAyuDeletedBatchKey) -> Set<Int> {
         guard let url = self.restoredURL(key), let text = try? String(contentsOf: url, encoding: .utf8) else {
             return []
         }
-        return Set(text.split(separator: "\n").compactMap { Int64($0) })
+        return Set(text.split(separator: "\n").compactMap { Int($0) })
     }
 
-    func markRestored(key: IAyuDeletedBatchKey, messageId: Int64) {
+    func markRestored(key: IAyuDeletedBatchKey, index: Int) {
         guard let url = self.restoredURL(key) else {
             return
         }
-        var ids = self.restoredIds(key: key)
-        ids.insert(messageId)
-        let text = ids.map { "\($0)" }.joined(separator: "\n")
+        var indices = self.restoredIndices(key: key)
+        indices.insert(index)
+        let text = indices.map { "\($0)" }.joined(separator: "\n")
         try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 }

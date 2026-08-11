@@ -1595,6 +1595,39 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             })))
         }
 
+        // IAyuGram: collapse this chat's preserved messages into one summary. Offered on
+        // a preserved message because that is where you are when the flood is in front of
+        // you — a chat wiped before collapsing existed came back as thousands of bubbles,
+        // and the live path cannot go back and fix them.
+        if message.attributes.contains(where: { $0 is DeletedMessageAttribute }) {
+            let peerId = message.id.peerId
+            sgActions.append(.action(ContextMenuActionItem(text: IAyuStrings.text(.massDeleteCollapseExisting), icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Archive"), color: theme.actionSheet.primaryTextColor)
+            }, action: { _, f in
+                f(.default)
+                iAyuCountCollapsibleDeletes(context: context, peerId: peerId, completion: { count in
+                    let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+                    guard count > 0 else {
+                        controllerInteraction.presentController(textAlertController(context: context, title: nil, text: IAyuStrings.text(.massDeleteCollapseExistingNothing), actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
+                        return
+                    }
+                    controllerInteraction.presentController(textAlertController(
+                        context: context,
+                        title: nil,
+                        text: IAyuStrings.text(.massDeleteCollapseExistingConfirm, ["count": "\(count)"]),
+                        actions: [
+                            TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {
+                                iAyuCollapseExistingDeletes(context: context, peerId: peerId, completion: { collapsed in
+                                    controllerInteraction.presentController(textAlertController(context: context, title: nil, text: IAyuStrings.text(.massDeleteCollapseExistingDone, ["count": "\(collapsed)"]), actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
+                                })
+                            }),
+                            TextAlertAction(type: .genericAction, title: presentationData.strings.Common_Cancel, action: {})
+                        ]
+                    ), nil)
+                })
+            })))
+        }
+
         var threadId: Int64?
         var threadMessageCount: Int = 0
         if case .peer = chatPresentationInterfaceState.chatLocation, let channel = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramChannel, case .group = channel.info {

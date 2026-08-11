@@ -21,15 +21,16 @@ private let iAyuDeletedBatchPageSize = 100
 
 private struct IAyuDeletedBatchState: Equatable {
     var names: [Int64: String]
-    var restored: Set<Int64>
+    // By position in the batch — see IAyuDeletedBatchStore.restoredIndices.
+    var restored: Set<Int>
     var limit: Int
 }
 
 private final class IAyuDeletedBatchArguments {
-    let restore: (IAyuMessageEvent) -> Void
+    let restore: (Int, IAyuMessageEvent) -> Void
     let showMore: () -> Void
 
-    init(restore: @escaping (IAyuMessageEvent) -> Void, showMore: @escaping () -> Void) {
+    init(restore: @escaping (Int, IAyuMessageEvent) -> Void, showMore: @escaping () -> Void) {
         self.restore = restore
         self.showMore = showMore
     }
@@ -88,7 +89,7 @@ private enum IAyuDeletedBatchEntry: ItemListNodeEntry {
         switch self {
         case let .header(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
-        case let .message(_, text, restored, event):
+        case let .message(index, text, restored, event):
             return ItemListMultilineTextItem(
                 presentationData: presentationData,
                 text: text,
@@ -97,7 +98,7 @@ private enum IAyuDeletedBatchEntry: ItemListNodeEntry {
                 style: .blocks,
                 // A restored message has nowhere left to go: it is in the chat.
                 action: restored ? nil : {
-                    arguments.restore(event)
+                    arguments.restore(Int(index), event)
                 }
             )
         case let .showMore(text):
@@ -124,7 +125,7 @@ func iAyuDeletedBatchController(context: AccountContext, key: IAyuDeletedBatchKe
 
     let initialState = IAyuDeletedBatchState(
         names: [:],
-        restored: IAyuDeletedBatchStore.shared.restoredIds(key: key),
+        restored: IAyuDeletedBatchStore.shared.restoredIndices(key: key),
         limit: iAyuDeletedBatchPageSize
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -158,7 +159,7 @@ func iAyuDeletedBatchController(context: AccountContext, key: IAyuDeletedBatchKe
         })
     }
 
-    let arguments = IAyuDeletedBatchArguments(restore: { event in
+    let arguments = IAyuDeletedBatchArguments(restore: { index, event in
         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
         var dismissImpl: (() -> Void)?
         let actionSheet = ActionSheetController(presentationData: presentationData)
@@ -172,11 +173,11 @@ func iAyuDeletedBatchController(context: AccountContext, key: IAyuDeletedBatchKe
                     // The normal materialization path: media included, download cap
                     // respected. The bytes were never fetched when the batch was
                     // collapsed, so this is where they arrive.
-                    iAyuMaterializeDeleted(context: context, event: event)
-                    IAyuDeletedBatchStore.shared.markRestored(key: key, messageId: event.messageId)
+                    iAyuRestoreArchived(context: context, event: event)
+                    IAyuDeletedBatchStore.shared.markRestored(key: key, index: index)
                     updateState { state in
                         var state = state
-                        state.restored.insert(event.messageId)
+                        state.restored.insert(index)
                         return state
                     }
                 })
@@ -208,7 +209,7 @@ func iAyuDeletedBatchController(context: AccountContext, key: IAyuDeletedBatchKe
         } else {
             entries.append(.header(IAyuStrings.text(.massDeleteHeader, ["count": "\(events.count)"])))
             for (index, event) in events.prefix(state.limit).enumerated() {
-                let restored = state.restored.contains(event.messageId)
+                let restored = state.restored.contains(index)
                 entries.append(.message(
                     Int32(index),
                     iAyuDeletedBatchRowText(event: event, state: state, restored: restored, dateFormatter: dateFormatter),

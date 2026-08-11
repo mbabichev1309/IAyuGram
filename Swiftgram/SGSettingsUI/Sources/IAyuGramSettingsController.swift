@@ -43,6 +43,11 @@ struct IAyuMessageEvent: Codable, Equatable {
     let mediaViewOnce: Bool?
     // Original document name, for kinds that have one (document/audio).
     let mediaFileName: String?
+    // LOCAL ONLY — the server never sends this. When a batch is made by collapsing
+    // messages that were already in the chat, the media has already been downloaded and
+    // there is no server message id left to fetch it by, so the media object itself is
+    // carried here (PostboxEncoder, base64). Restoring such an entry needs no network.
+    let mediaBlob: String?
 
     enum CodingKeys: String, CodingKey {
         case cursor
@@ -62,6 +67,7 @@ struct IAyuMessageEvent: Codable, Equatable {
         case mediaDuration = "media_duration"
         case mediaViewOnce = "media_view_once"
         case mediaFileName = "media_file_name"
+        case mediaBlob = "media_blob"
     }
 }
 
@@ -336,7 +342,7 @@ func iAyuInsertDeleted(context: AccountContext, items: [IAyuPendingDelete]) {
 
 // Build the synthetic local message for one preserved delete. Takes the transaction
 // because resolving the author needs a database lookup.
-private func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, transaction: Transaction) -> StoreMessage {
+func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, transaction: Transaction) -> StoreMessage {
     let event = item.event
     let media = item.media
     let appendedNote = item.appendedNote
