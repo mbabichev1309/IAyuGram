@@ -214,11 +214,15 @@ struct IAyuPendingDelete {
     let event: IAyuMessageEvent
     let media: [Media]
     let appendedNote: String?
+    // Anything to carry beyond DeletedMessageAttribute. Used by the mass-deletion
+    // summary, whose text entities hold the link that opens the collapsed batch.
+    let extraAttributes: [MessageAttribute]
 
-    init(event: IAyuMessageEvent, media: [Media] = [], appendedNote: String? = nil) {
+    init(event: IAyuMessageEvent, media: [Media] = [], appendedNote: String? = nil, extraAttributes: [MessageAttribute] = []) {
         self.event = event
         self.media = media
         self.appendedNote = appendedNote
+        self.extraAttributes = extraAttributes
     }
 }
 
@@ -291,20 +295,25 @@ func iAyuFetchAndBuildMedia(context: AccountContext, event: IAyuMessageEvent, co
     }
 }
 
+// What to call a piece of media we are describing rather than showing — because it was
+// too big to download, or because it belongs to a collapsed mass deletion.
+func iAyuMediaKindLabel(kind: String?, fileName: String?) -> String {
+    switch kind {
+    case "video": return IAyuStrings.text(.mediaVideo)
+    case "gif": return IAyuStrings.text(.mediaGif)
+    case "audio": return IAyuStrings.text(.mediaAudio)
+    case "document": return fileName ?? IAyuStrings.text(.mediaFile)
+    case "photo": return IAyuStrings.text(.mediaPhoto)
+    case "voice": return IAyuStrings.text(.mediaVoice)
+    case "round": return IAyuStrings.text(.mediaRound)
+    default: return IAyuStrings.text(.mediaGeneric)
+    }
+}
+
 // Human-readable note for media that was preserved on the server but not downloaded.
 private func iAyuSkippedMediaNote(event: IAyuMessageEvent, size: Int) -> String {
     let megabytes = max(1, size / (1024 * 1024))
-    let label: String
-    switch event.mediaKind {
-    case "video": label = IAyuStrings.text(.mediaVideo)
-    case "gif": label = IAyuStrings.text(.mediaGif)
-    case "audio": label = IAyuStrings.text(.mediaAudio)
-    case "document": label = event.mediaFileName ?? IAyuStrings.text(.mediaFile)
-    case "photo": label = IAyuStrings.text(.mediaPhoto)
-    case "voice": label = IAyuStrings.text(.mediaVoice)
-    case "round": label = IAyuStrings.text(.mediaRound)
-    default: label = IAyuStrings.text(.mediaGeneric)
-    }
+    let label = iAyuMediaKindLabel(kind: event.mediaKind, fileName: event.mediaFileName)
     return IAyuStrings.text(.mediaSkippedNote, ["kind": label, "size": "\(megabytes)"])
 }
 
@@ -376,7 +385,7 @@ private func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: Pee
         forwardInfo: nil,
         authorId: resolvedAuthorId,
         text: text,
-        attributes: [DeletedMessageAttribute(date: timestamp)],
+        attributes: [DeletedMessageAttribute(date: timestamp)] + item.extraAttributes,
         media: media
     )
 }
@@ -574,16 +583,18 @@ private final class IAyuHubArguments {
     let toggleInvisibleSend: (Bool) -> Void
     let toggleRestoreOwnDeletes: (Bool) -> Void
     let pickMediaCap: () -> Void
+    let pickMassDeleteThreshold: () -> Void
     let openAppearance: () -> Void
     let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleSignal = toggleSignal
         self.toggleLock = toggleLock
         self.toggleInvisibleSend = toggleInvisibleSend
         self.toggleRestoreOwnDeletes = toggleRestoreOwnDeletes
         self.pickMediaCap = pickMediaCap
+        self.pickMassDeleteThreshold = pickMassDeleteThreshold
         self.openAppearance = openAppearance
         self.openLocalization = openLocalization
         self.openConnection = openConnection
@@ -615,7 +626,20 @@ private enum IAyuHubSection: Int32 {
     case send
     case preserve
     case media
+    case massDelete
     case screens
+}
+
+// Offered collapse thresholds: how many deletes in one burst make a mass deletion.
+// 0 disables collapsing, which brings back the old behaviour of materializing every
+// single message — including the whole of a wiped chat.
+private let iAyuMassDeleteOptions: [Int32] = [0, 25, 50, 100, 200]
+
+private func iAyuMassDeleteLabel(_ count: Int32) -> String {
+    if count <= 0 {
+        return IAyuStrings.text(.hubMassDeleteNever)
+    }
+    return "\(count)"
 }
 
 // Offered download caps, in MB; 0 means no limit. Kept in one place so the row's label and
@@ -644,6 +668,9 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case mediaHeader(String)
     case mediaCap(String, Int32)
     case mediaInfo(String)
+    case massDeleteHeader(String)
+    case massDeleteThreshold(String, Int32)
+    case massDeleteInfo(String)
     case appearance(String)
     case localization(String)
     case connection(String)
@@ -658,6 +685,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return IAyuHubSection.preserve.rawValue
         case .mediaHeader, .mediaCap, .mediaInfo:
             return IAyuHubSection.media.rawValue
+        case .massDeleteHeader, .massDeleteThreshold, .massDeleteInfo:
+            return IAyuHubSection.massDelete.rawValue
         case .appearance, .localization, .connection:
             return IAyuHubSection.screens.rawValue
         }
@@ -678,6 +707,9 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .mediaHeader: return 25
         case .mediaCap: return 26
         case .mediaInfo: return 27
+        case .massDeleteHeader: return 27_1
+        case .massDeleteThreshold: return 27_2
+        case .massDeleteInfo: return 27_3
         case .appearance: return 28
         case .localization: return 29
         case .connection: return 30
@@ -715,6 +747,12 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let (.mediaCap(a1, a2), .mediaCap(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.mediaInfo(a), .mediaInfo(b)):
+            return a == b
+        case let (.massDeleteHeader(a), .massDeleteHeader(b)):
+            return a == b
+        case let (.massDeleteThreshold(a1, a2), .massDeleteThreshold(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.massDeleteInfo(a), .massDeleteInfo(b)):
             return a == b
         case let (.appearance(a), .appearance(b)):
             return a == b
@@ -779,6 +817,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             })
         case let .mediaInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .massDeleteHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .massDeleteThreshold(title, count):
+            return ItemListDisclosureItem(presentationData: presentationData, title: title, label: iAyuMassDeleteLabel(count), sectionId: self.section, style: .blocks, action: {
+                arguments.pickMassDeleteThreshold()
+            })
+        case let .massDeleteInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .appearance(title):
             return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "", sectionId: self.section, style: .blocks, action: {
                 arguments.openAppearance()
@@ -803,6 +849,7 @@ private struct IAyuHubState: Equatable {
     var invisibleSend: Bool
     var restoreOwnDeletes: Bool
     var mediaCapMB: Int32
+    var massDeleteThreshold: Int32
 }
 
 public func iAyuGramSettingsController(context: AccountContext) -> ViewController {
@@ -811,7 +858,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         locks: iAyuGhostRows.map { $0.signal.isLocked },
         invisibleSend: SGSimpleSettings.shared.iaGhostInvisibleSend,
         restoreOwnDeletes: SGSimpleSettings.shared.iaRestoreOwnDeletes,
-        mediaCapMB: SGSimpleSettings.shared.iaMediaMaxDownloadMB
+        mediaCapMB: SGSimpleSettings.shared.iaMediaMaxDownloadMB,
+        massDeleteThreshold: SGSimpleSettings.shared.iaMassDeleteCollapse
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -883,6 +931,34 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             ])
         ])
         presentControllerImpl?(actionSheet)
+    }, pickMassDeleteThreshold: {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        var dismissImpl: (() -> Void)?
+        var items: [ActionSheetItem] = [ActionSheetTextItem(title: IAyuStrings.text(.hubMassDeleteThreshold))]
+        for option in iAyuMassDeleteOptions {
+            items.append(ActionSheetButtonItem(title: iAyuMassDeleteLabel(option), action: {
+                dismissImpl?()
+                SGSimpleSettings.shared.iaMassDeleteCollapse = option
+                updateState { state in
+                    var state = state
+                    state.massDeleteThreshold = option
+                    return state
+                }
+            }))
+        }
+        let actionSheet = ActionSheetController(presentationData: presentationData)
+        dismissImpl = { [weak actionSheet] in
+            actionSheet?.dismissAnimated()
+        }
+        actionSheet.setItemGroups([
+            ActionSheetItemGroup(items: items),
+            ActionSheetItemGroup(items: [
+                ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: {
+                    dismissImpl?()
+                })
+            ])
+        ])
+        presentControllerImpl?(actionSheet)
     }, openAppearance: {
         pushControllerImpl?(iAyuGramAppearanceController(context: context))
     }, openLocalization: {
@@ -909,6 +985,9 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.mediaHeader(IAyuStrings.text(.hubMediaHeader)))
         entries.append(.mediaCap(IAyuStrings.text(.hubMediaCap), state.mediaCapMB))
         entries.append(.mediaInfo(IAyuStrings.text(.hubMediaInfo)))
+        entries.append(.massDeleteHeader(IAyuStrings.text(.hubMassDeleteHeader)))
+        entries.append(.massDeleteThreshold(IAyuStrings.text(.hubMassDeleteThreshold), state.massDeleteThreshold))
+        entries.append(.massDeleteInfo(IAyuStrings.text(.hubMassDeleteInfo)))
         entries.append(.appearance(IAyuStrings.text(.hubAppearance)))
         entries.append(.localization(IAyuStrings.text(.hubLocalization)))
         entries.append(.connection(IAyuStrings.text(.hubConnection)))

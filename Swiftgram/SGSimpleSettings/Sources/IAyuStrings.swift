@@ -102,6 +102,21 @@ public enum IAyuStringKey: String, CaseIterable {
     case mediaGeneric
     case mediaSkippedNote
 
+    // Mass deletions — a whole chat's worth of deletes, collapsed into one message
+    case hubMassDeleteHeader
+    case hubMassDeleteThreshold
+    case hubMassDeleteNever
+    case hubMassDeleteInfo
+    case massDeletePlaque
+    case massDeleteShowAll
+    case massDeleteTitle
+    case massDeleteHeader
+    case massDeleteFromMe
+    case massDeleteRestore
+    case massDeleteRestored
+    case massDeleteShowMore
+    case massDeleteMissing
+
     // Home-screen quick action
     case shortcutGhostTitle
     case shortcutGhostSubtitle
@@ -198,6 +213,20 @@ public final class IAyuStrings {
         .mediaGeneric: "Media",
         .mediaSkippedNote: "[{kind}, {size} MB — not downloaded]",
 
+        .hubMassDeleteHeader: "MASS DELETIONS",
+        .hubMassDeleteThreshold: "Collapse from",
+        .hubMassDeleteNever: "Never collapse",
+        .hubMassDeleteInfo: "When a chat is wiped, bringing every message back one by one is neither readable nor free. Past this many deletions in one burst they are kept aside and the chat gets a single summary instead, which opens the full list.",
+        .massDeletePlaque: "{count} messages were deleted",
+        .massDeleteShowAll: "Show all",
+        .massDeleteTitle: "Deleted messages",
+        .massDeleteHeader: "{count} MESSAGES",
+        .massDeleteFromMe: "You",
+        .massDeleteRestore: "Restore into the chat",
+        .massDeleteRestored: "Restored into the chat",
+        .massDeleteShowMore: "Show more",
+        .massDeleteMissing: "These messages are no longer stored on this device.",
+
         .shortcutGhostTitle: "Ghost mode",
         .shortcutGhostSubtitle: "Enter with all signals hidden",
 
@@ -230,6 +259,10 @@ public final class IAyuStrings {
                           .editHistoryPreviousHeaderWithBadge, .editHistoryCurrentHeader]),
         ("PRESERVED MEDIA", [.mediaPhoto, .mediaVideo, .mediaVoice, .mediaRound, .mediaAudio,
                              .mediaGif, .mediaFile, .mediaGeneric, .mediaSkippedNote]),
+        ("MASS DELETIONS", [.hubMassDeleteHeader, .hubMassDeleteThreshold, .hubMassDeleteNever,
+                            .hubMassDeleteInfo, .massDeletePlaque, .massDeleteShowAll,
+                            .massDeleteTitle, .massDeleteHeader, .massDeleteFromMe, .massDeleteRestore,
+                            .massDeleteRestored, .massDeleteShowMore, .massDeleteMissing]),
         ("QUICK ACTION", [.shortcutGhostTitle, .shortcutGhostSubtitle]),
         ("MY PROFILE", [.myProfileStatusGhost])
     ]
@@ -309,6 +342,19 @@ public final class IAyuStrings {
         case .mediaFile: return "File"
         case .mediaGeneric: return "Generic"
         case .mediaSkippedNote: return "Skipped note"
+        case .hubMassDeleteHeader: return "Section header"
+        case .hubMassDeleteThreshold: return "Threshold row"
+        case .hubMassDeleteNever: return "Never value"
+        case .hubMassDeleteInfo: return "Section footnote"
+        case .massDeletePlaque: return "Summary message"
+        case .massDeleteShowAll: return "Summary link"
+        case .massDeleteTitle: return "Screen title"
+        case .massDeleteHeader: return "List header"
+        case .massDeleteFromMe: return "Own message"
+        case .massDeleteRestore: return "Restore action"
+        case .massDeleteRestored: return "Restored label"
+        case .massDeleteShowMore: return "Show more"
+        case .massDeleteMissing: return "Missing batch"
         case .shortcutGhostTitle: return "Title"
         case .shortcutGhostSubtitle: return "Subtitle"
         case .myProfileStatusGhost: return "Ghost status"

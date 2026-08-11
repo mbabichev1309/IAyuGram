@@ -106,6 +106,7 @@ public class SGSimpleSettings {
         case iaEditedBadge
         case iaEditHistoryShowDates
         case iaMediaMaxDownloadMB
+        case iaMassDeleteCollapse
         case iaTintDeleted
         case iaTintColorRGB
         case iaGhostHideReadReceipts
@@ -287,6 +288,7 @@ public class SGSimpleSettings {
         Keys.iaEditedBadge.rawValue: "✏️ edited",
         Keys.iaEditHistoryShowDates.rawValue: true,
         Keys.iaMediaMaxDownloadMB.rawValue: 64,
+        Keys.iaMassDeleteCollapse.rawValue: 50,
         Keys.iaTintDeleted.rawValue: true,
         Keys.iaTintColorRGB.rawValue: 0xff3b30,
         Keys.iaGhostHideReadReceipts.rawValue: false,
@@ -428,6 +430,12 @@ public class SGSimpleSettings {
     // the next gap-sync. 0 means no limit.
     @UserDefault(key: Keys.iaMediaMaxDownloadMB.rawValue)
     public var iaMediaMaxDownloadMB: Int32
+
+    // IAyuGram: how many deletes in one chat, in one burst, count as a mass deletion.
+    // Past this the messages are not brought back one by one — they are collapsed into
+    // a single summary message that opens the full list. 0 disables collapsing.
+    @UserDefault(key: Keys.iaMassDeleteCollapse.rawValue)
+    public var iaMassDeleteCollapse: Int32
 
     // IAyuGram: tint deleted-message bubbles (a subtle red overlay following the
     // bubble shape). Toggle + colour in IAyuGram → Appearance.

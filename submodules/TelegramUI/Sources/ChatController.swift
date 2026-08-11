@@ -1,4 +1,5 @@
 import SGSimpleSettings
+import SGSettingsUI
 import Foundation
 import UIKit
 import Postbox
@@ -3276,7 +3277,17 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             let message = urlData.message
             let progress = urlData.progress
             let forceExternal = urlData.external ?? false
-            
+
+            // IAyuGram: the summary a collapsed mass deletion leaves in the chat carries
+            // a link of our own rather than a web address — tapping it lists the messages
+            // that were kept aside instead of being brought back one by one.
+            if iAyuIsMassDeleteURL(url) {
+                if let controller = iAyuDeletedBatchController(context: strongSelf.context, url: url) {
+                    strongSelf.effectiveNavigationController?.pushViewController(controller)
+                }
+                return
+            }
+
             var skipConcealedAlert = false
             if let author = message?.author, author.isVerified {
                 skipConcealedAlert = true
