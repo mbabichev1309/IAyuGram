@@ -132,11 +132,33 @@ final class IAyuLiveSession {
         })
     }
 
+    // Tear the socket down BEFORE telling anyone it is gone. Without this the dead
+    // session kept its task alive and its receive loop running: the server went on
+    // counting the subscriber, and the old session kept delivering events beside its
+    // replacement, until the reconnect timer got round to it 5–60s later. That is also
+    // why the server's "disconnected" line marked the moment of cleanup rather than the
+    // moment of the drop.
     private func notifyClosed() {
         guard self.active, !self.didNotifyClosed else { return }
         self.didNotifyClosed = true
+        self.active = false
+        self.task.cancel(with: .goingAway, reason: nil)
         self.onConnected?(false)
         self.onClosed?()
+    }
+
+    // Ask the socket, right now, whether it is still there. The keepalive runs on a 20s
+    // cadence, which is too long to sit on when the app has just come back and the owner
+    // is deciding whether to keep this socket or replace it — iOS can have killed it
+    // while we were suspended with no error having surfaced yet.
+    func probeAlive() {
+        guard self.active else { return }
+        self.task.sendPing { [weak self] error in
+            guard let self = self, self.active, error != nil else { return }
+            Queue.mainQueue().async {
+                self.notifyClosed()
+            }
+        }
     }
 
     static func liveURL(serverURL: String, token: String) -> URL? {
