@@ -273,7 +273,15 @@ public final class IAyuSyncManager {
     private func scheduleReconnect() {
         guard self.active, !self.serverURL.isEmpty else { return }
         let delay = self.reconnectDelay
-        self.reconnectDelay = min(self.reconnectDelay * 2.0, 60.0)
+        // Only count attempts that had a chance. iOS does not let a suspended app open a
+        // socket, so growing the delay while we are not on screen walked the backoff to
+        // its 60s cap on attempts that were doomed anyway — and then the app was opened
+        // and had to wait out that cap before a live connection existed. Reached only
+        // from a session's onClosed, which always runs on the main queue; applicationState
+        // may not be read anywhere else.
+        if UIApplication.shared.applicationState == .active {
+            self.reconnectDelay = min(self.reconnectDelay * 2.0, 60.0)
+        }
         Queue.mainQueue().after(delay, { [weak self] in
             guard let self = self, self.active else { return }
             self.connectLive()
@@ -281,10 +289,22 @@ public final class IAyuSyncManager {
         })
     }
 
+    // didBecomeActive is not "returned from the background". It also arrives after the
+    // control centre, a notification banner, a screenshot, the app switcher and an
+    // incoming call — so reconnecting unconditionally threw away a perfectly good socket
+    // hundreds of times a day, and every teardown meant deletes arrived with the next
+    // gap-sync instead of live. A socket we believe in is probed rather than replaced;
+    // if the probe fails, its own onClosed brings us back here through the reconnect.
     private func onForeground() {
         guard self.active, !self.serverURL.isEmpty else { return }
         self.reconnectDelay = 5.0
-        self.connectLive()
+        if self.isLiveConnected {
+            self.liveSession?.probeAlive()
+        } else {
+            self.connectLive()
+        }
+        // Unconditional: a gap-sync is cheap, and it is what covers whatever the socket
+        // missed while we were away, however briefly.
         self.gapSync(serverURL: self.serverURL, token: self.token, since: Int(SGSimpleSettings.shared.iaSyncCursor))
     }
 
