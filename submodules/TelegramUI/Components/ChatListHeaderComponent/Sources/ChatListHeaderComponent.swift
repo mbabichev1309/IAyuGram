@@ -717,7 +717,7 @@ public final class ChatListHeaderComponent: Component {
             // value fixed at init that the override cannot reach, so while the warning is
             // up it would draw the ordinary title on top of it — the two were visible
             // side by side on device, offset by the story-list scroll. Hide it instead.
-            if IAyuCaptureHealth.shared.isDegraded {
+            if IAyuCaptureHealth.shared.chatListWarningKey != nil {
                 self.titleTextView.isHidden = true
             }
             self.centerContentWidth = centerContentWidth

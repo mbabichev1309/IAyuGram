@@ -7438,8 +7438,8 @@ private final class ChatListLocationContext {
             // every renderer picks the warning up on its own, with no z-order to fight.
             // It also lands after the interface language has produced its title, so a
             // custom language pack cannot override it back.
-            if IAyuCaptureHealth.shared.isDegraded, !titleContent.activity {
-                titleContent.text = IAyuStrings.text(.captureWarningTitle)
+            if let warningKey = IAyuCaptureHealth.shared.chatListWarningKey, !titleContent.activity {
+                titleContent.text = IAyuStrings.text(warningKey)
             }
 
             self.chatListTitle = titleContent

@@ -83,6 +83,8 @@ public enum IAyuStringKey: String, CaseIterable {
 
     // Capture health — replaces the chat list title while capture is down
     case captureWarningTitle
+    // Same slot, lower priority: the server's disk is nearly full
+    case storageWarningTitle
 
     // Edit history
     case editHistoryMenuItem
@@ -205,6 +207,7 @@ public final class IAyuStrings {
         .connectionEventNoContent: "<no content>",
 
         .captureWarningTitle: "⚠️ Capture down",
+        .storageWarningTitle: "⚠️ Server disk almost full",
 
         .editHistoryMenuItem: "Edit history",
         .editHistoryTitle: "Edit history",
@@ -268,7 +271,7 @@ public final class IAyuStrings {
                         .connectionStatusConnected, .connectionStatusFailed,
                         .connectionStatusDisconnected, .connectionStatusInvalidURL,
                         .connectionEventNoContent]),
-        ("CAPTURE HEALTH", [.captureWarningTitle]),
+        ("CAPTURE HEALTH", [.captureWarningTitle, .storageWarningTitle]),
         ("PER-CHAT EXCEPTIONS", [.chatExceptionsMenuItem, .chatExceptionsTitle,
                                  .chatExceptionsGhostDisabled, .chatExceptionsGhostInfo,
                                  .chatExceptionsPreservationDisabled, .chatExceptionsPreservationInfo]),
@@ -348,6 +351,7 @@ public final class IAyuStrings {
         case .connectionStatusInvalidURL: return "Invalid URL"
         case .connectionEventNoContent: return "No content"
         case .captureWarningTitle: return "Chat list title while capture is down"
+        case .storageWarningTitle: return "Chat list title while the server disk is low"
         case .editHistoryMenuItem: return "Menu item"
         case .editHistoryTitle: return "Title"
         case .editHistoryPreviousHeader: return "Previous header"
