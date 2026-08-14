@@ -137,6 +137,10 @@ public enum IAyuStringKey: String, CaseIterable {
     case hubRoundVideoInfinite
     case hubRoundVideoInfo
 
+    // "First listened at" — replaces the read date for our own voice/round messages
+    case listenedToday
+    case listenedOnDate
+
     // Home-screen quick action
     case shortcutGhostTitle
     case shortcutGhostSubtitle
@@ -265,6 +269,9 @@ public final class IAyuStrings {
         .hubRoundVideoInfinite: "Record past one minute",
         .hubRoundVideoInfo: "Telegram stops a round video at one minute. With this on, the finished minute is sent on its own and recording carries straight on, so a long take arrives as a series of messages. There is a short gap at each seam, and the recording still stops for good after ten of them.",
 
+        .listenedToday: "Listened at {time}",
+        .listenedOnDate: "Listened {date} at {time}",
+
         .shortcutGhostTitle: "Ghost mode",
         .shortcutGhostSubtitle: "Enter with all signals hidden",
 
@@ -307,6 +314,7 @@ public final class IAyuStrings {
                             .massDeleteCollapseExisting, .massDeleteCollapseExistingConfirm,
                             .massDeleteCollapseExistingNothing, .massDeleteCollapseExistingDone]),
         ("ROUND VIDEOS", [.hubRoundVideoHeader, .hubRoundVideoInfinite, .hubRoundVideoInfo]),
+        ("LISTENED AT", [.listenedToday, .listenedOnDate]),
         ("QUICK ACTION", [.shortcutGhostTitle, .shortcutGhostSubtitle]),
         ("MY PROFILE", [.myProfileStatusGhost])
     ]
@@ -414,6 +422,8 @@ public final class IAyuStrings {
         case .hubRoundVideoHeader: return "Section header"
         case .hubRoundVideoInfinite: return "Record past one minute"
         case .hubRoundVideoInfo: return "Section footnote"
+        case .listenedToday: return "Today"
+        case .listenedOnDate: return "Earlier day"
         case .shortcutGhostTitle: return "Title"
         case .shortcutGhostSubtitle: return "Subtitle"
         case .myProfileStatusGhost: return "Ghost status"
