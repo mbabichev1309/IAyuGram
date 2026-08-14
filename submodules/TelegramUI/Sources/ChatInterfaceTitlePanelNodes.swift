@@ -7,6 +7,23 @@ import ChatControllerInteraction
 import ComponentFlow
 import ChatSideTopicsPanel
 import LegacyChatHeaderPanelComponent
+import SGSimpleSettings
+
+// IAyuGram: the "managed by a business bot" panel and the pinned message share one slot,
+// and upstream resolves that in the bot's favour unconditionally — the managing-bot panel
+// is returned from inside the same block, before the pinned-message branch below is ever
+// reached, so the pinned message is not covered but never built at all. Two settings decide
+// it instead: hide the panel outright, or hand the slot to the pinned message when there is
+// one and leave the bot panel to show in its absence.
+private func iAyuShouldShowManagingBotPanel(selectedContext: ChatTitlePanelContext?) -> Bool {
+    if SGSimpleSettings.shared.iaHideBusinessBotPanel {
+        return false
+    }
+    if SGSimpleSettings.shared.iaPinnedOverBusinessBot, selectedContext == .pinnedMessage {
+        return false
+    }
+    return true
+}
 
 func titlePanelForChatPresentationInterfaceState(_ chatPresentationInterfaceState: ChatPresentationInterfaceState, context: AccountContext, currentPanel: ChatTitleAccessoryPanelNode?, controllerInteraction: ChatControllerInteraction?, interfaceInteraction: ChatPanelInterfaceInteraction?, force: Bool) -> ChatTitleAccessoryPanelNode? {
     if !force, case .standard(.embedded) = chatPresentationInterfaceState.mode {
@@ -181,7 +198,7 @@ func titlePanelForChatPresentationInterfaceState(_ chatPresentationInterfaceStat
                 panel.interfaceInteraction = interfaceInteraction
                 return panel
             }
-        } else if !chatPresentationInterfaceState.peerIsBlocked && !inhibitTitlePanelDisplay, let contactStatus = chatPresentationInterfaceState.contactStatus, contactStatus.managingBot != nil {
+        } else if !chatPresentationInterfaceState.peerIsBlocked && !inhibitTitlePanelDisplay, let contactStatus = chatPresentationInterfaceState.contactStatus, contactStatus.managingBot != nil, iAyuShouldShowManagingBotPanel(selectedContext: selectedContext) {
             if let currentPanel = currentPanel as? ChatManagingBotTitlePanelNode {
                 return currentPanel
             } else {
