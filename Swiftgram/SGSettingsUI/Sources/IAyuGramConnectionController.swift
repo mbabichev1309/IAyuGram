@@ -17,12 +17,14 @@ private final class IAyuConnectionArguments {
     let updateToken: (String) -> Void
     let connectLive: () -> Void
     let forceDegraded: () -> Void
+    let forceStorageLow: () -> Void
 
-    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void, forceDegraded: @escaping () -> Void) {
+    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void, forceDegraded: @escaping () -> Void, forceStorageLow: @escaping () -> Void) {
         self.updateServerURL = updateServerURL
         self.updateToken = updateToken
         self.connectLive = connectLive
         self.forceDegraded = forceDegraded
+        self.forceStorageLow = forceStorageLow
     }
 }
 
@@ -37,7 +39,19 @@ private enum IAyuConnectionSection: Int32 {
 // CFBundleVersion and there is otherwise no way to tell from the phone which binary is
 // actually installed — which is exactly the ambiguity that stalled the capture-health
 // investigation.
-private let iAyuBuildMarker = "capture-health-title-8"
+private let iAyuBuildMarker = "storage-warning-1"
+
+// The reported figure, not a verdict: on a box with hundreds of free gigabytes the
+// warning will never fire by itself, so this is what tells "arriving, plenty of room"
+// apart from "nothing is arriving".
+private func iAyuStorageDescription() -> String {
+    guard let free = IAyuCaptureHealth.shared.lastStorageFreeBytes else {
+        return "not reported yet"
+    }
+    let gb = Double(free) / 1073741824.0
+    let suffix = IAyuCaptureHealth.shared.isStorageLow ? " — LOW" : ""
+    return String(format: "%.1f GB free%@", gb, suffix)
+}
 
 private func iAyuCaptureStateDescription(_ state: IAyuCaptureState) -> String {
     switch state {
@@ -59,6 +73,7 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
     case diagHeader(String)
     case diagState(String)
     case diagForce(String)
+    case diagForceStorage(String)
 
     var section: ItemListSectionId {
         switch self {
@@ -66,7 +81,7 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             return IAyuConnectionSection.connection.rawValue
         case .liveHeader, .event:
             return IAyuConnectionSection.live.rawValue
-        case .diagHeader, .diagState, .diagForce:
+        case .diagHeader, .diagState, .diagForce, .diagForceStorage:
             return IAyuConnectionSection.diagnostics.rawValue
         }
     }
@@ -83,6 +98,7 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
         case .diagHeader: return 10000
         case .diagState: return 10001
         case .diagForce: return 10002
+        case .diagForceStorage: return 10003
         }
     }
 
@@ -109,6 +125,8 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
         case let (.diagHeader(a), .diagHeader(b)):
             return a == b
         case let (.diagState(a), .diagState(b)):
+            return a == b
+        case let (.diagForceStorage(a), .diagForceStorage(b)):
             return a == b
         case let (.diagForce(a), .diagForce(b)):
             return a == b
@@ -143,6 +161,10 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
         case let .diagForce(title):
             return ItemListActionItem(presentationData: presentationData, title: title, kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
                 arguments.forceDegraded()
+            })
+        case let .diagForceStorage(title):
+            return ItemListActionItem(presentationData: presentationData, title: title, kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
+                arguments.forceStorageLow()
             })
         case let .liveHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
@@ -240,6 +262,17 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
             state.diagTick += 1
             return state
         }
+    }, forceStorageLow: {
+        // Same idea for the storage warning, and here it is the only way to see it at
+        // all: the box has hundreds of gigabytes free, so the real threshold cannot be
+        // reached on demand. Note the capture warning outranks this one, so check this
+        // with capture healthy or the title will show the other message.
+        IAyuCaptureHealth.shared.forceStorageLow()
+        updateState { state in
+            var state = state
+            state.diagTick += 1
+            return state
+        }
     })
 
     let signal = combineLatest(statePromise.get(), context.sharedContext.presentationData)
@@ -259,8 +292,9 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
             }
         }
         entries.append(.diagHeader("DIAGNOSTICS"))
-        entries.append(.diagState("Build: \(iAyuBuildMarker)\nCapture health: \(iAyuCaptureStateDescription(IAyuCaptureHealth.shared.state))"))
+        entries.append(.diagState("Build: \(iAyuBuildMarker)\nCapture health: \(iAyuCaptureStateDescription(IAyuCaptureHealth.shared.state))\nServer free space: \(iAyuStorageDescription())"))
         entries.append(.diagForce("Force the warning on"))
+        entries.append(.diagForceStorage("Force the storage warning on"))
 
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(IAyuStrings.text(.connectionTitle)), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)

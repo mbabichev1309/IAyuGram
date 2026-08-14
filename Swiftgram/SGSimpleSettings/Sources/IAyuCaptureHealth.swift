@@ -28,6 +28,11 @@ public enum IAyuCaptureState: Int {
     case sessionLost
 }
 
+// Warn below this much free space on the server. Absolute rather than a percentage on
+// purpose: 10% of a large disk is tens of spare gigabytes and would never fire, while
+// 10% of a small one can be less than a single capture (media_max_bytes is 512 MB).
+public let iAyuStorageWarningFreeBytes: Int64 = 5 * 1024 * 1024 * 1024
+
 public final class IAyuCaptureHealth {
     public static let shared = IAyuCaptureHealth()
 
@@ -43,8 +48,77 @@ public final class IAyuCaptureHealth {
     // arrived, the reader re-read ITS copy, found it healthy, and drew nothing while the
     // settings screen was reporting UNREACHABLE. UserDefaults is shared by construction.
     private static let stateKey = "ia_capture_state"
+    // Same UserDefaults reasoning as `state` above — the writer and the reader are in
+    // different modules and cannot rely on sharing an instance.
+    private static let storageLowKey = "ia_storage_low"
+    private static let storageFreeKey = "ia_storage_free_bytes"
 
     private init() {
+    }
+
+    // Kept apart from `state` rather than added to IAyuCaptureState: the two are
+    // independent (capture can be down while the disk is fine, and both can be true at
+    // once), and folding them into one enum would make `isDegraded` mean two things.
+    // The chat list prefers the capture warning — that one means data is being lost
+    // right now, this one means it may be lost later.
+    public var isStorageLow: Bool {
+        return UserDefaults.standard.bool(forKey: IAyuCaptureHealth.storageLowKey)
+    }
+
+    // Last figure the server reported, or nil if none has arrived yet. Diagnostics only.
+    public var lastStorageFreeBytes: Int64? {
+        guard UserDefaults.standard.object(forKey: IAyuCaptureHealth.storageFreeKey) != nil else {
+            return nil
+        }
+        return Int64(UserDefaults.standard.integer(forKey: IAyuCaptureHealth.storageFreeKey))
+    }
+
+    // Diagnostics: drive the warning directly, the way forceDegraded does for capture.
+    // A box with hundreds of free gigabytes cannot produce this state on demand.
+    public func forceStorageLow() {
+        UserDefaults.standard.set(true, forKey: IAyuCaptureHealth.storageLowKey)
+        NotificationCenter.default.post(name: IAyuCaptureHealth.changedNotification, object: nil)
+    }
+
+    // Which warning the chat list title should carry, if any. Both renderers ask this
+    // one question so the priority is decided in a single place: capture-down wins,
+    // because it means data is being lost right now, while low storage only means it
+    // may be lost later.
+    public var chatListWarningKey: IAyuStringKey? {
+        if self.isDegraded {
+            return .captureWarningTitle
+        }
+        if self.isStorageLow {
+            return .storageWarningTitle
+        }
+        return nil
+    }
+
+    // `nil` means the server did not report a figure (an older build, or it could not
+    // read the volume). Unknown must not clear an existing warning, so it is ignored.
+    public func updateStorage(freeBytes: Int64?) {
+        guard let freeBytes = freeBytes else {
+            return
+        }
+        // Kept for the Connection screen's diagnostics. A disk with hundreds of free
+        // gigabytes will never trip the threshold on its own, so showing the figure the
+        // server actually reported is the only way to tell "the wiring works and there
+        // is plenty of room" from "nothing is arriving at all".
+        UserDefaults.standard.set(Int(freeBytes), forKey: IAyuCaptureHealth.storageFreeKey)
+
+        let low = freeBytes < iAyuStorageWarningFreeBytes
+        guard low != self.isStorageLow else {
+            return
+        }
+        UserDefaults.standard.set(low, forKey: IAyuCaptureHealth.storageLowKey)
+
+        if Thread.isMainThread {
+            NotificationCenter.default.post(name: IAyuCaptureHealth.changedNotification, object: nil)
+        } else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: IAyuCaptureHealth.changedNotification, object: nil)
+            }
+        }
     }
 
     public var state: IAyuCaptureState {

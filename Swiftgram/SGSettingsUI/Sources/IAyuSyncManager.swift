@@ -10,10 +10,16 @@ import SGSimpleSettings
 private struct IAyuGapSyncResponse: Codable {
     let events: [IAyuMessageEvent]
     let latestCursor: Int
+    // Free space on the volume holding captured media. Optional because servers older
+    // than the field simply omit it, and a missing figure must read as "unknown", never
+    // as "empty disk". The threshold lives on this side (see IAyuCaptureHealth) so it
+    // can change without redeploying the server.
+    let storageFreeBytes: Int64?
 
     enum CodingKeys: String, CodingKey {
         case events
         case latestCursor = "latest_cursor"
+        case storageFreeBytes = "storage_free_bytes"
     }
 }
 
@@ -615,6 +621,12 @@ public final class IAyuSyncManager {
             guard let data = data, let response = try? JSONDecoder().decode(IAyuGapSyncResponse.self, from: data) else {
                 return
             }
+            // Gap-sync is the one request the client makes unconditionally — at launch
+            // and on every foreground — which is why the server's free-space figure
+            // rides along here rather than on /healthz, a call that only happens while
+            // the live socket is already down.
+            IAyuCaptureHealth.shared.updateStorage(freeBytes: response.storageFreeBytes)
+
             for event in response.events {
                 self.handle(event)
             }
