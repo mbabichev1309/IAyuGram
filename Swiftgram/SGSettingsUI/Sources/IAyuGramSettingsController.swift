@@ -612,18 +612,26 @@ private final class IAyuHubArguments {
     let toggleRestoreOwnDeletes: (Bool) -> Void
     let pickMediaCap: () -> Void
     let pickMassDeleteThreshold: () -> Void
+    let pickMassDeleteGlobalThreshold: () -> Void
+    let togglePinnedOverBot: (Bool) -> Void
+    let toggleHideBotPanel: (Bool) -> Void
+    let explainBotPanelLock: () -> Void
     let toggleInfiniteRoundVideos: (Bool) -> Void
     let openAppearance: () -> Void
     let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, toggleInfiniteRoundVideos: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, pickMassDeleteGlobalThreshold: @escaping () -> Void, togglePinnedOverBot: @escaping (Bool) -> Void, toggleHideBotPanel: @escaping (Bool) -> Void, explainBotPanelLock: @escaping () -> Void, toggleInfiniteRoundVideos: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleSignal = toggleSignal
         self.toggleLock = toggleLock
         self.toggleInvisibleSend = toggleInvisibleSend
         self.toggleRestoreOwnDeletes = toggleRestoreOwnDeletes
         self.pickMediaCap = pickMediaCap
         self.pickMassDeleteThreshold = pickMassDeleteThreshold
+        self.pickMassDeleteGlobalThreshold = pickMassDeleteGlobalThreshold
+        self.togglePinnedOverBot = togglePinnedOverBot
+        self.toggleHideBotPanel = toggleHideBotPanel
+        self.explainBotPanelLock = explainBotPanelLock
         self.toggleInfiniteRoundVideos = toggleInfiniteRoundVideos
         self.openAppearance = openAppearance
         self.openLocalization = openLocalization
@@ -657,6 +665,7 @@ private enum IAyuHubSection: Int32 {
     case preserve
     case media
     case massDelete
+    case botPanel
     case roundVideo
     case screens
 }
@@ -669,6 +678,20 @@ private let iAyuMassDeleteOptions: [Int32] = [0, 25, 50, 100, 200]
 private func iAyuMassDeleteLabel(_ count: Int32) -> String {
     if count <= 0 {
         return IAyuStrings.text(.hubMassDeleteNever)
+    }
+    return "\(count)"
+}
+
+// Deletes counted across ALL chats in one sync run, past which collapsing arms
+// everywhere. 0 leaves only the per-chat rule. The small values are here on purpose:
+// the case this defends against — many chats, few deletes each — is impractical to
+// reproduce at its real size, so the threshold has to be lowerable enough that three
+// chats with two deletes apiece exercise the same code path.
+private let iAyuMassDeleteGlobalOptions: [Int32] = [0, 5, 100, 300, 1000]
+
+private func iAyuMassDeleteGlobalLabel(_ count: Int32) -> String {
+    if count <= 0 {
+        return IAyuStrings.text(.hubMassDeleteGlobalNever)
     }
     return "\(count)"
 }
@@ -701,7 +724,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case mediaInfo(String)
     case massDeleteHeader(String)
     case massDeleteThreshold(String, Int32)
+    case massDeleteGlobalThreshold(String, Int32)
     case massDeleteInfo(String)
+    case botPanelHeader(String)
+    // Title, value, and whether the row is still meaningful (it is not once the panel
+    // is hidden outright).
+    case botPanelPinnedFirst(String, Bool, Bool)
+    case botPanelHide(String, Bool)
+    case botPanelInfo(String)
     case roundVideoHeader(String)
     case infiniteRoundVideos(String, Bool)
     case roundVideoInfo(String)
@@ -719,8 +749,10 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return IAyuHubSection.preserve.rawValue
         case .mediaHeader, .mediaCap, .mediaInfo:
             return IAyuHubSection.media.rawValue
-        case .massDeleteHeader, .massDeleteThreshold, .massDeleteInfo:
+        case .massDeleteHeader, .massDeleteThreshold, .massDeleteGlobalThreshold, .massDeleteInfo:
             return IAyuHubSection.massDelete.rawValue
+        case .botPanelHeader, .botPanelPinnedFirst, .botPanelHide, .botPanelInfo:
+            return IAyuHubSection.botPanel.rawValue
         case .roundVideoHeader, .infiniteRoundVideos, .roundVideoInfo:
             return IAyuHubSection.roundVideo.rawValue
         case .appearance, .localization, .connection:
@@ -728,30 +760,40 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         }
     }
 
+    // Ten per section, so a new row never needs a fractional id. These had drifted out of
+    // display order — sections appended later carried ids larger than the screens below
+    // them, which only stayed invisible because the order comes from the entries array
+    // rather than from sorting. Renumbered rather than extended a fourth time.
     var stableId: Int32 {
         switch self {
         case .ghostHeader: return 0
+        // 1...19 belong to the ghost signals.
         case let .ghostSignal(index, _, _, _): return 1 + index
         case .ghostInfo: return 20
         case .ghostLockHint: return 21
-        case .sendHeader: return 22
-        case .sendInvisible: return 23
-        case .sendInfo: return 24
-        case .preserveHeader: return 24_1
-        case .restoreOwnDeletes: return 24_2
-        case .preserveInfo: return 24_3
-        case .mediaHeader: return 25
-        case .mediaCap: return 26
-        case .mediaInfo: return 27
-        case .massDeleteHeader: return 27_1
-        case .massDeleteThreshold: return 27_2
-        case .massDeleteInfo: return 27_3
-        case .roundVideoHeader: return 27_4
-        case .infiniteRoundVideos: return 27_5
-        case .roundVideoInfo: return 27_6
-        case .appearance: return 28
-        case .localization: return 29
-        case .connection: return 30
+        case .sendHeader: return 30
+        case .sendInvisible: return 31
+        case .sendInfo: return 32
+        case .preserveHeader: return 40
+        case .restoreOwnDeletes: return 41
+        case .preserveInfo: return 42
+        case .mediaHeader: return 50
+        case .mediaCap: return 51
+        case .mediaInfo: return 52
+        case .massDeleteHeader: return 60
+        case .massDeleteThreshold: return 61
+        case .massDeleteGlobalThreshold: return 62
+        case .massDeleteInfo: return 63
+        case .botPanelHeader: return 70
+        case .botPanelPinnedFirst: return 71
+        case .botPanelHide: return 72
+        case .botPanelInfo: return 73
+        case .roundVideoHeader: return 80
+        case .infiniteRoundVideos: return 81
+        case .roundVideoInfo: return 82
+        case .appearance: return 90
+        case .localization: return 91
+        case .connection: return 92
         }
     }
 
@@ -791,7 +833,17 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return a == b
         case let (.massDeleteThreshold(a1, a2), .massDeleteThreshold(b1, b2)):
             return a1 == b1 && a2 == b2
+        case let (.massDeleteGlobalThreshold(a1, a2), .massDeleteGlobalThreshold(b1, b2)):
+            return a1 == b1 && a2 == b2
         case let (.massDeleteInfo(a), .massDeleteInfo(b)):
+            return a == b
+        case let (.botPanelHeader(a), .botPanelHeader(b)):
+            return a == b
+        case let (.botPanelPinnedFirst(a1, a2, a3), .botPanelPinnedFirst(b1, b2, b3)):
+            return a1 == b1 && a2 == b2 && a3 == b3
+        case let (.botPanelHide(a1, a2), .botPanelHide(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.botPanelInfo(a), .botPanelInfo(b)):
             return a == b
         case let (.roundVideoHeader(a), .roundVideoHeader(b)):
             return a == b
@@ -868,7 +920,28 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return ItemListDisclosureItem(presentationData: presentationData, title: title, label: iAyuMassDeleteLabel(count), sectionId: self.section, style: .blocks, action: {
                 arguments.pickMassDeleteThreshold()
             })
+        case let .massDeleteGlobalThreshold(title, count):
+            return ItemListDisclosureItem(presentationData: presentationData, title: title, label: iAyuMassDeleteGlobalLabel(count), sectionId: self.section, style: .blocks, action: {
+                arguments.pickMassDeleteGlobalThreshold()
+            })
         case let .massDeleteInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .botPanelHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .botPanelPinnedFirst(title, value, enabled):
+            // Greyed out, not hidden, once the panel is gone entirely: the row would
+            // otherwise appear and disappear as the switch below is flipped. Tapping it
+            // while disabled explains why instead of doing nothing.
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, enabled: enabled, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.togglePinnedOverBot(newValue)
+            }, activatedWhileDisabled: {
+                arguments.explainBotPanelLock()
+            })
+        case let .botPanelHide(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleHideBotPanel(newValue)
+            })
+        case let .botPanelInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .roundVideoHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
@@ -903,6 +976,9 @@ private struct IAyuHubState: Equatable {
     var restoreOwnDeletes: Bool
     var mediaCapMB: Int32
     var massDeleteThreshold: Int32
+    var massDeleteGlobalThreshold: Int32
+    var pinnedOverBot: Bool
+    var hideBotPanel: Bool
     var infiniteRoundVideos: Bool
 }
 
@@ -914,6 +990,9 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         restoreOwnDeletes: SGSimpleSettings.shared.iaRestoreOwnDeletes,
         mediaCapMB: SGSimpleSettings.shared.iaMediaMaxDownloadMB,
         massDeleteThreshold: SGSimpleSettings.shared.iaMassDeleteCollapse,
+        massDeleteGlobalThreshold: SGSimpleSettings.shared.iaMassDeleteGlobalCollapse,
+        pinnedOverBot: SGSimpleSettings.shared.iaPinnedOverBusinessBot,
+        hideBotPanel: SGSimpleSettings.shared.iaHideBusinessBotPanel,
         infiniteRoundVideos: SGSimpleSettings.shared.iaInfiniteRoundVideos
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -1014,6 +1093,53 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             ])
         ])
         presentControllerImpl?(actionSheet)
+    }, pickMassDeleteGlobalThreshold: {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        var dismissImpl: (() -> Void)?
+        var items: [ActionSheetItem] = [ActionSheetTextItem(title: IAyuStrings.text(.hubMassDeleteGlobalThreshold))]
+        for option in iAyuMassDeleteGlobalOptions {
+            items.append(ActionSheetButtonItem(title: iAyuMassDeleteGlobalLabel(option), action: {
+                dismissImpl?()
+                SGSimpleSettings.shared.iaMassDeleteGlobalCollapse = option
+                updateState { state in
+                    var state = state
+                    state.massDeleteGlobalThreshold = option
+                    return state
+                }
+            }))
+        }
+        let actionSheet = ActionSheetController(presentationData: presentationData)
+        dismissImpl = { [weak actionSheet] in
+            actionSheet?.dismissAnimated()
+        }
+        actionSheet.setItemGroups([
+            ActionSheetItemGroup(items: items),
+            ActionSheetItemGroup(items: [
+                ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: {
+                    dismissImpl?()
+                })
+            ])
+        ])
+        presentControllerImpl?(actionSheet)
+    }, togglePinnedOverBot: { value in
+        SGSimpleSettings.shared.iaPinnedOverBusinessBot = value
+        updateState { state in
+            var state = state
+            state.pinnedOverBot = value
+            return state
+        }
+    }, toggleHideBotPanel: { value in
+        SGSimpleSettings.shared.iaHideBusinessBotPanel = value
+        updateState { state in
+            var state = state
+            state.hideBotPanel = value
+            return state
+        }
+    }, explainBotPanelLock: {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        presentControllerImpl?(textAlertController(context: context, title: nil, text: IAyuStrings.text(.hubBotPanelLockedHint), actions: [
+            TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})
+        ]))
     }, toggleInfiniteRoundVideos: { value in
         SGSimpleSettings.shared.iaInfiniteRoundVideos = value
         updateState { state in
@@ -1049,7 +1175,12 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.mediaInfo(IAyuStrings.text(.hubMediaInfo)))
         entries.append(.massDeleteHeader(IAyuStrings.text(.hubMassDeleteHeader)))
         entries.append(.massDeleteThreshold(IAyuStrings.text(.hubMassDeleteThreshold), state.massDeleteThreshold))
+        entries.append(.massDeleteGlobalThreshold(IAyuStrings.text(.hubMassDeleteGlobalThreshold), state.massDeleteGlobalThreshold))
         entries.append(.massDeleteInfo(IAyuStrings.text(.hubMassDeleteInfo)))
+        entries.append(.botPanelHeader(IAyuStrings.text(.hubBotPanelHeader)))
+        entries.append(.botPanelPinnedFirst(IAyuStrings.text(.hubBotPanelPinnedFirst), state.pinnedOverBot, !state.hideBotPanel))
+        entries.append(.botPanelHide(IAyuStrings.text(.hubBotPanelHide), state.hideBotPanel))
+        entries.append(.botPanelInfo(IAyuStrings.text(.hubBotPanelInfo)))
         entries.append(.roundVideoHeader(IAyuStrings.text(.hubRoundVideoHeader)))
         entries.append(.infiniteRoundVideos(IAyuStrings.text(.hubRoundVideoInfinite), state.infiniteRoundVideos))
         entries.append(.roundVideoInfo(IAyuStrings.text(.hubRoundVideoInfo)))

@@ -107,6 +107,8 @@ public enum IAyuStringKey: String, CaseIterable {
     case hubMassDeleteThreshold
     case hubMassDeleteNever
     case hubMassDeleteInfo
+    case hubMassDeleteGlobalThreshold
+    case hubMassDeleteGlobalNever
     case massDeletePlaque
     case massDeleteShowAll
     case massDeleteTitle
@@ -120,6 +122,13 @@ public enum IAyuStringKey: String, CaseIterable {
     case massDeleteCollapseExistingConfirm
     case massDeleteCollapseExistingNothing
     case massDeleteCollapseExistingDone
+
+    // Business bot panel vs the pinned message
+    case hubBotPanelHeader
+    case hubBotPanelPinnedFirst
+    case hubBotPanelHide
+    case hubBotPanelInfo
+    case hubBotPanelLockedHint
 
     // Round videos — recording past the 60s cap
     case hubRoundVideoHeader
@@ -240,6 +249,15 @@ public final class IAyuStrings {
         .massDeleteCollapseExistingNothing: "There are no preserved deleted messages in this chat.",
         .massDeleteCollapseExistingDone: "{count} messages collapsed into a summary.",
 
+        .hubMassDeleteGlobalThreshold: "Collapse everywhere from",
+        .hubMassDeleteGlobalNever: "Per-chat only",
+
+        .hubBotPanelHeader: "BUSINESS BOT PANEL",
+        .hubBotPanelPinnedFirst: "Pinned message comes first",
+        .hubBotPanelHide: "Hide the panel entirely",
+        .hubBotPanelInfo: "Telegram gives the \"managed by a bot\" panel and the pinned message the same slot, and the bot always wins it. The first switch hands the slot back to the pinned message whenever there is one, leaving the bot panel to show in its absence. The second removes the panel altogether.",
+        .hubBotPanelLockedHint: "The panel is hidden entirely, so there is nothing to give the pinned message priority over.",
+
         .hubRoundVideoHeader: "ROUND VIDEOS",
         .hubRoundVideoInfinite: "Record past one minute",
         .hubRoundVideoInfo: "Telegram stops a round video at one minute. With this on, the finished minute is sent on its own and recording carries straight on, so a long take arrives as a series of messages. There is a short gap at each seam, and the recording still stops for good after ten of them.",
@@ -276,7 +294,10 @@ public final class IAyuStrings {
                           .editHistoryPreviousHeaderWithBadge, .editHistoryCurrentHeader]),
         ("PRESERVED MEDIA", [.mediaPhoto, .mediaVideo, .mediaVoice, .mediaRound, .mediaAudio,
                              .mediaGif, .mediaFile, .mediaGeneric, .mediaSkippedNote]),
+        ("BUSINESS BOT PANEL", [.hubBotPanelHeader, .hubBotPanelPinnedFirst, .hubBotPanelHide,
+                                .hubBotPanelInfo, .hubBotPanelLockedHint]),
         ("MASS DELETIONS", [.hubMassDeleteHeader, .hubMassDeleteThreshold, .hubMassDeleteNever,
+                            .hubMassDeleteGlobalThreshold, .hubMassDeleteGlobalNever,
                             .hubMassDeleteInfo, .massDeletePlaque, .massDeleteShowAll,
                             .massDeleteTitle, .massDeleteHeader, .massDeleteFromMe, .massDeleteRestore,
                             .massDeleteRestored, .massDeleteShowMore, .massDeleteMissing,
@@ -379,6 +400,13 @@ public final class IAyuStrings {
         case .massDeleteCollapseExistingConfirm: return "Collapse confirm"
         case .massDeleteCollapseExistingNothing: return "Nothing to collapse"
         case .massDeleteCollapseExistingDone: return "Collapse done"
+        case .hubMassDeleteGlobalThreshold: return "Global threshold row"
+        case .hubMassDeleteGlobalNever: return "Global threshold off"
+        case .hubBotPanelHeader: return "Section header"
+        case .hubBotPanelPinnedFirst: return "Pinned first row"
+        case .hubBotPanelHide: return "Hide panel row"
+        case .hubBotPanelInfo: return "Section footnote"
+        case .hubBotPanelLockedHint: return "Locked row hint"
         case .hubRoundVideoHeader: return "Section header"
         case .hubRoundVideoInfinite: return "Record past one minute"
         case .hubRoundVideoInfo: return "Section footnote"
