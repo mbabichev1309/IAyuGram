@@ -138,6 +138,9 @@ public final class IAyuSyncManager {
     // backgrounding. Only a drop that outlives the grace period means something is wrong.
     private var isLiveConnected = false
     private var degradeCheckPending = false
+    // A socket is mid-handshake — see connectLive.
+    private var isConnecting = false
+    private var lastForegroundAt = 0.0
 
     public init(context: AccountContext) {
         self.context = context
@@ -191,12 +194,23 @@ public final class IAyuSyncManager {
     }
 
     private func connectLive() {
+        // isLiveConnected only turns true once the confirming ping answers, so it reads
+        // false for the whole handshake. Anything arriving in that window — a second
+        // didBecomeActive, a reconnect timer — used to take that as "no socket" and build
+        // another, tearing down the one still connecting. Measured on the server: 182
+        // connections across 80 genuine wakes, with 51 wakes producing exactly two.
+        guard !self.isConnecting else {
+            return
+        }
+        self.isConnecting = true
+
         self.liveSession?.stop()
         self.liveSession = IAyuLiveSession(serverURL: self.serverURL, token: self.token, onEvent: { [weak self] event in
             self?.handle(event)
         }, onStatus: { _ in
         }, onConnected: { [weak self] connected in
             guard let self = self else { return }
+            self.isConnecting = false
             self.isLiveConnected = connected
             if connected {
                 // Reset the backoff once we're actually connected.
@@ -206,7 +220,20 @@ public final class IAyuSyncManager {
                 self.scheduleDegradeCheck()
             }
         }, onClosed: { [weak self] in
-            self?.scheduleReconnect()
+            guard let self = self else { return }
+            self.isConnecting = false
+            self.scheduleReconnect()
+        })
+        if self.liveSession == nil {
+            // Bad URL: nothing will ever call back, so release the guard now.
+            self.isConnecting = false
+            return
+        }
+        // Safety net. If a handshake hangs with neither callback ever firing, the guard
+        // above would latch and no reconnect would be attempted again for the lifetime
+        // of the app — a far worse failure than the duplicate it exists to prevent.
+        Queue.mainQueue().after(20.0, { [weak self] in
+            self?.isConnecting = false
         })
     }
 
@@ -308,6 +335,15 @@ public final class IAyuSyncManager {
     // if the probe fails, its own onClosed brings us back here through the reconnect.
     private func onForeground() {
         guard self.active, !self.serverURL.isEmpty else { return }
+        // didBecomeActive fires for banners, the control centre and screenshots, not just
+        // for a real return — and often twice within seconds for one of them. Running the
+        // whole probe-or-reconnect dance each time is the other half of the duplicate
+        // connections; one wake should cost one socket.
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - self.lastForegroundAt < 3.0 {
+            return
+        }
+        self.lastForegroundAt = now
         self.reconnectDelay = 5.0
         if self.isLiveConnected {
             self.liveSession?.probeAlive()
