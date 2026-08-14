@@ -253,6 +253,40 @@ extension ChatControllerImpl {
                     }
                     self.resumeMediaRecorder()
                 }
+                // IAyuGram: a round video recorded past the one-minute cap arrives here one
+                // finished chunk at a time. Unlike `completion` this must not tear the
+                // recorder down — the camera is still running on the next chunk.
+                controller.iAyuCanSendChunk = { [weak self] in
+                    guard let self else {
+                        return false
+                    }
+                    if case .scheduledMessages = self.presentationInterfaceState.subject {
+                        return false
+                    }
+                    if self.presentationInterfaceState.slowmodeState != nil {
+                        return false
+                    }
+                    if self.presentationInterfaceState.sendPaidMessageStars != nil {
+                        return false
+                    }
+                    return true
+                }
+                controller.onChunk = { [weak self] message in
+                    guard let self else {
+                        return
+                    }
+                    var message = message
+                    // Only the first chunk answers the reply — after that the subject is
+                    // cleared, so the rest of the take goes out as plain messages.
+                    if let replyMessageSubject = self.presentationInterfaceState.interfaceState.replyMessageSubject {
+                        message = message.withUpdatedReplyToMessageId(replyMessageSubject.subjectModel)
+                        self.updateChatPresentationInterfaceState(animated: false, interactive: false, {
+                            $0.updatedInterfaceState { $0.withUpdatedReplyMessageSubject(nil) }
+                        })
+                    }
+                    let silentPosting = self.presentationInterfaceState.interfaceState.silentPosting
+                    self.sendMessages(self.transformEnqueueMessages([message], silentPosting: silentPosting))
+                }
                 self.videoRecorder.set(.single(controller))
             }
         }

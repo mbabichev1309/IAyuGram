@@ -121,6 +121,11 @@ public enum IAyuStringKey: String, CaseIterable {
     case massDeleteCollapseExistingNothing
     case massDeleteCollapseExistingDone
 
+    // Round videos — recording past the 60s cap
+    case hubRoundVideoHeader
+    case hubRoundVideoInfinite
+    case hubRoundVideoInfo
+
     // Home-screen quick action
     case shortcutGhostTitle
     case shortcutGhostSubtitle
@@ -235,6 +240,10 @@ public final class IAyuStrings {
         .massDeleteCollapseExistingNothing: "There are no preserved deleted messages in this chat.",
         .massDeleteCollapseExistingDone: "{count} messages collapsed into a summary.",
 
+        .hubRoundVideoHeader: "ROUND VIDEOS",
+        .hubRoundVideoInfinite: "Record past one minute",
+        .hubRoundVideoInfo: "Telegram stops a round video at one minute. With this on, the finished minute is sent on its own and recording carries straight on, so a long take arrives as a series of messages. There is a short gap at each seam, and the recording still stops for good after ten of them.",
+
         .shortcutGhostTitle: "Ghost mode",
         .shortcutGhostSubtitle: "Enter with all signals hidden",
 
@@ -273,6 +282,7 @@ public final class IAyuStrings {
                             .massDeleteRestored, .massDeleteShowMore, .massDeleteMissing,
                             .massDeleteCollapseExisting, .massDeleteCollapseExistingConfirm,
                             .massDeleteCollapseExistingNothing, .massDeleteCollapseExistingDone]),
+        ("ROUND VIDEOS", [.hubRoundVideoHeader, .hubRoundVideoInfinite, .hubRoundVideoInfo]),
         ("QUICK ACTION", [.shortcutGhostTitle, .shortcutGhostSubtitle]),
         ("MY PROFILE", [.myProfileStatusGhost])
     ]
@@ -369,6 +379,9 @@ public final class IAyuStrings {
         case .massDeleteCollapseExistingConfirm: return "Collapse confirm"
         case .massDeleteCollapseExistingNothing: return "Nothing to collapse"
         case .massDeleteCollapseExistingDone: return "Collapse done"
+        case .hubRoundVideoHeader: return "Section header"
+        case .hubRoundVideoInfinite: return "Record past one minute"
+        case .hubRoundVideoInfo: return "Section footnote"
         case .shortcutGhostTitle: return "Title"
         case .shortcutGhostSubtitle: return "Subtitle"
         case .myProfileStatusGhost: return "Ghost status"
