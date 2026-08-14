@@ -237,7 +237,10 @@ private final class VideoMessageCameraScreenComponent: CombinedComponent {
         private let getController: () -> VideoMessageCameraScreen?
         
         private var resultDisposable = MetaDisposable()
-                
+        // Kept apart from resultDisposable: closing a chunk has to dispose the stop
+        // subscription without touching the recording subscription that replaces it.
+        private let flushDisposable = MetaDisposable()
+
         var cameraState: CameraState?
         
         var didDisplayViewOnce = false
@@ -287,6 +290,7 @@ private final class VideoMessageCameraScreenComponent: CombinedComponent {
         
         deinit {
             self.resultDisposable.dispose()
+            self.flushDisposable.dispose()
         }
         
         func toggleViewOnce() {
@@ -399,58 +403,80 @@ private final class VideoMessageCameraScreenComponent: CombinedComponent {
             }
         }
         
-        func startVideoRecording(pressing: Bool) {
+        // `skipCameraWarmUp` starts writing without waiting on the preview: it is only for
+        // IAyuGram's chunk restart, where capture was never paused, so the readiness wait
+        // (0.3s inside withReadyCamera plus the 0.15s hop) would be dead time in the seam.
+        func startVideoRecording(pressing: Bool, skipCameraWarmUp: Bool = false) {
             guard let controller = self.getController(), let camera = controller.camera else {
                 return
             }
             guard case .none = controller.cameraState.recording else {
                 return
             }
-            
+
             let currentTimestamp = CACurrentMediaTime()
             if let lastActionTimestamp = controller.lastActionTimestamp, currentTimestamp - lastActionTimestamp < 0.5 {
                 return
             }
             controller.lastActionTimestamp = currentTimestamp
-        
+
             let initialDuration = controller.node.previewState?.composition.duration.seconds ?? 0.0
             let isFirstRecording = initialDuration.isZero
             controller.node.resumeCameraCapture()
-            
+
             controller.node.dismissAllTooltips()
             controller.updateCameraState({ $0.updatedRecording(pressing ? .holding : .handsFree).updatedDuration(initialDuration) }, transition: .spring(duration: 0.4))
-        
+
             controller.updatePreviewState({ _ in return nil }, transition: .spring(duration: 0.4))
-            
-            controller.node.withReadyCamera(isFirstTime: !controller.node.cameraIsActive) { [weak self] in
-                Queue.mainQueue().after(0.15) {
-                    guard let self else {
-                        return
+
+            let beginRecording: () -> Void = { [weak self] in
+                guard let self else {
+                    return
+                }
+                self.resultDisposable.set((camera.startRecording()
+                |> deliverOnMainQueue).startStrict(next: { [weak self] recordingData in
+                    let duration = initialDuration + recordingData.duration
+                    if let self, let controller = self.getController() {
+                        controller.updateCameraState({ $0.updatedDuration(duration) }, transition: .easeInOut(duration: 0.1))
+                        if isFirstRecording {
+                            controller.node.setupLiveUpload(filePath: recordingData.filePath)
+                        }
+                        if duration > 59.5 {
+                            // IAyuGram: past the cap, either send the finished chunk and carry
+                            // straight on recording, or fall back to stock behaviour — pause
+                            // and wait for the user to send. This fires on every tick past the
+                            // cap, so a flush already under way has to swallow the rest:
+                            // falling through to onStop would pause mid-chunk.
+                            if !controller.iAyuIsFlushingChunk {
+                                if controller.iAyuShouldFlushChunk {
+                                    self.iAyuFlushChunk()
+                                } else {
+                                    controller.onStop()
+                                }
+                            }
+                        }
                     }
-                    self.resultDisposable.set((camera.startRecording()
-                    |> deliverOnMainQueue).startStrict(next: { [weak self] recordingData in
-                        let duration = initialDuration + recordingData.duration
-                        if let self, let controller = self.getController() {
-                            controller.updateCameraState({ $0.updatedDuration(duration) }, transition: .easeInOut(duration: 0.1))
-                            if isFirstRecording {
-                                controller.node.setupLiveUpload(filePath: recordingData.filePath)
-                            }
-                            if duration > 59.5 {
-                                controller.onStop()
-                            }
-                        }
-                    }, error: { [weak self] _ in
-                        if let self, let controller = self.getController() {
-                            controller.completion(nil, nil, nil, nil)
-                        }
-                    }))
+                }, error: { [weak self] _ in
+                    if let self, let controller = self.getController() {
+                        controller.completion(nil, nil, nil, nil)
+                    }
+                }))
+            }
+
+            if skipCameraWarmUp {
+                beginRecording()
+            } else {
+                controller.node.withReadyCamera(isFirstTime: !controller.node.cameraIsActive) {
+                    Queue.mainQueue().after(0.15) {
+                        beginRecording()
+                    }
                 }
             }
-            
+
             if initialDuration > 0.0 {
                 controller.onResume()
             }
-            
+
             if controller.cameraState.position == .front && controller.cameraState.flashMode == .on {
                 self.updateScreenBrightness()
             }
@@ -458,6 +484,14 @@ private final class VideoMessageCameraScreenComponent: CombinedComponent {
         
         func stopVideoRecording() {
             guard let controller = self.getController(), let camera = controller.camera else {
+                return
+            }
+            // Letting go of the button inside a chunk flush would stop a camera that is
+            // already stopping. Hold the action and run it once the next chunk is recording.
+            if controller.iAyuIsFlushingChunk {
+                controller.iAyuPendingFlushAction = { [weak self] in
+                    self?.stopVideoRecording()
+                }
                 return
             }
             let currentTimestamp = CACurrentMediaTime()
@@ -487,10 +521,111 @@ private final class VideoMessageCameraScreenComponent: CombinedComponent {
                 self.animateBrightnessChange()
             }
         }
-        
+
+        // IAyuGram: close the current chunk of a long round video, send it on its own, and
+        // start the next one. Deliberately does NOT go through the component's `completion`
+        // slot: that lands in addCaptureResult, which stops capture and swaps the live camera
+        // for a preview of what was just shot. Here the camera has to keep running, so the
+        // finished segment is handed straight to the controller and never enters `results`.
+        func iAyuFlushChunk() {
+            guard let controller = self.getController(), let camera = controller.camera else {
+                return
+            }
+            guard !controller.iAyuIsFlushingChunk else {
+                return
+            }
+            controller.iAyuIsFlushingChunk = true
+
+            // The next chunk has to resume in the mode the user is actually in — a held
+            // button must not come back as hands-free, or letting go would do nothing.
+            // Held on the controller because the lock button can still be tapped while the
+            // flush is in flight.
+            if case .holding = controller.cameraState.recording {
+                controller.iAyuChunkResumePressing = true
+            } else {
+                controller.iAyuChunkResumePressing = false
+            }
+
+            // The cap is noticed from inside the running recording's own callback, and the
+            // stop below replaces that very subscription. Take the flag now so nothing
+            // re-enters, then do the work off the callback.
+            Queue.mainQueue().justDispatch { [weak self] in
+                guard let self else {
+                    return
+                }
+                self.iAyuBeginFlush(camera: camera)
+            }
+        }
+
+        private func iAyuBeginFlush(camera: Camera) {
+            // Drop the finished recording's progress subscription, the way upstream's stop
+            // does by overwriting it. Left alive it keeps reporting a duration past the cap.
+            // The recorder itself is unaffected — it writes until stopRecording below.
+            self.resultDisposable.set(nil)
+
+            self.flushDisposable.set((camera.stopRecording()
+            |> deliverOnMainQueue).startStrict(next: { [weak self] result in
+                guard let self, let controller = self.getController() else {
+                    return
+                }
+                // CameraOutput releases its recorder in the stop signal's afterDisposed, and
+                // startRecording refuses to start while that recorder is still around. So the
+                // subscription is dropped here rather than left to complete on its own —
+                // otherwise whether the next chunk records at all comes down to which main
+                // queue block happens to run first, and a loss is silent.
+                self.flushDisposable.set(nil)
+
+                guard case let .finished(mainResult, _, duration, _, _) = result else {
+                    controller.iAyuIsFlushingChunk = false
+                    return
+                }
+
+                controller.iAyuSendChunk(video: VideoMessageCameraScreen.CaptureResult.Video(
+                    videoPath: mainResult.path,
+                    dimensions: PixelDimensions(mainResult.dimensions),
+                    duration: duration,
+                    thumbnail: mainResult.thumbnail
+                ))
+
+                // Back to a clean slate: no accumulated segments, so the next chunk records
+                // from zero and a final send only carries the tail.
+                controller.updateCameraState({ $0.updatedRecording(.none).updatedDuration(0.0) }, transition: .immediate)
+                controller.lastActionTimestamp = nil
+
+                // Hop off this signal's own callback before replacing resultDisposable with
+                // the next recording's subscription. The flush flag stays up across the hop:
+                // a touch delivered in between would otherwise stop a camera that has no
+                // recorder yet, which leaves the panel recording forever.
+                Queue.mainQueue().justDispatch { [weak self] in
+                    guard let self, let controller = self.getController() else {
+                        return
+                    }
+                    if case .none = controller.cameraState.recording {
+                        self.startVideoRecording(pressing: controller.iAyuChunkResumePressing, skipCameraWarmUp: true)
+                    }
+                    controller.iAyuIsFlushingChunk = false
+
+                    // A stop or send that landed inside the flush window was held back rather
+                    // than run against a camera that was mid-restart. Run it now, against the
+                    // recording that just started. Clearing the timestamp matters: the restart
+                    // stamped it, and both of those paths debounce on it for half a second.
+                    if let pendingAction = controller.iAyuPendingFlushAction {
+                        controller.iAyuPendingFlushAction = nil
+                        controller.lastActionTimestamp = nil
+                        pendingAction()
+                    }
+                }
+            }))
+        }
+
         func lockVideoRecording() {
             guard let controller = self.getController() else {
                 return
+            }
+            // Locking inside a chunk flush would otherwise be undone by the restart, which
+            // resumes in whatever mode was captured when the flush began.
+            if controller.iAyuIsFlushingChunk {
+                controller.iAyuChunkResumePressing = false
             }
             controller.updateCameraState({ $0.updatedRecording(.handsFree) }, transition: .spring(duration: 0.4))
         }
@@ -1689,10 +1824,65 @@ public class VideoMessageCameraScreen: ViewController {
 
     public var onStop: () -> Void = {
     }
-    
+
     public var onResume: () -> Void = {
     }
-    
+
+    // IAyuGram: a finished chunk of a long round video, to be sent on its own while the
+    // recorder stays up. Separate from `completion`, which tears the camera down.
+    public var onChunk: (EnqueueMessage) -> Void = { _ in
+    }
+
+    // Asked at each cap: is sending a message right now acceptable in this chat? Slowmode,
+    // paid messages and the scheduled-messages view all say no.
+    public var iAyuCanSendChunk: () -> Bool = {
+        return true
+    }
+
+    fileprivate var iAyuChunksSent = 0
+    fileprivate var iAyuIsFlushingChunk = false
+    // Whether the next chunk resumes as a held button rather than hands-free.
+    fileprivate var iAyuChunkResumePressing = false
+    // A stop or send that arrived while a chunk was being closed, deferred until the next
+    // chunk is recording so it never runs against a camera that is mid-restart.
+    fileprivate var iAyuPendingFlushAction: (() -> Void)?
+
+    fileprivate var iAyuShouldFlushChunk: Bool {
+        guard SGSimpleSettings.shared.iaInfiniteRoundVideos else {
+            return false
+        }
+        guard !self.iAyuIsFlushingChunk, !self.didSend else {
+            return false
+        }
+        // A view-once round video cut into a series of separately expiring messages is not
+        // what "view once" means, so the cap goes back to being a hard stop.
+        guard !self.cameraState.isViewOnceEnabled else {
+            return false
+        }
+        guard self.iAyuChunksSent < SGSimpleSettings.iaInfiniteRoundVideoMaxChunks else {
+            return false
+        }
+        return self.iAyuCanSendChunk()
+    }
+
+    fileprivate func iAyuSendChunk(video: VideoMessageCameraScreen.CaptureResult.Video) {
+        self.iAyuChunksSent += 1
+
+        // Finalize this chunk's live upload and disarm the interface, so the recording that
+        // starts next re-arms it against its own file. Carrying it over would attach this
+        // chunk's uploaded bytes to the next chunk's message.
+        let liveUploadData = self.node.liveUploadInterface?.fileUpdated(true) as? LegacyLiveUploadInterfaceResult
+        self.node.liveUploadInterface = nil
+        self.node.currentLiveUploadData = nil
+
+        self.buildMessage(results: [.video(video)], liveUploadData: liveUploadData, messageEffect: nil, completion: { [weak self] message in
+            guard let self, let message else {
+                return
+            }
+            self.onChunk(message)
+        })
+    }
+
     public var backgroundView: UIVisualEffectView {
         return self.node.backgroundView
     }
@@ -1842,7 +2032,16 @@ public class VideoMessageCameraScreen: ViewController {
         guard !self.didSend else {
             return
         }
-        
+
+        // Same reason as in stopVideoRecording: a send that lands inside a chunk flush waits
+        // for the next chunk to be recording rather than racing the restart.
+        if self.iAyuIsFlushingChunk {
+            self.iAyuPendingFlushAction = { [weak self] in
+                self?.sendVideoRecording(silentPosting: silentPosting, scheduleTime: scheduleTime, repeatPeriod: repeatPeriod, messageEffect: messageEffect)
+            }
+            return
+        }
+
         var skipAction = false
         let currentTimestamp = CACurrentMediaTime()
         if let lastActionTimestamp = self.lastActionTimestamp, currentTimestamp - lastActionTimestamp < 0.5 {
@@ -1878,177 +2077,200 @@ public class VideoMessageCameraScreen: ViewController {
         let _ = (self.currentResults
         |> take(1)
         |> deliverOnMainQueue).startStandalone(next: { [weak self] results in
-            guard let self, let firstResult = results.first, case let .video(video) = firstResult else {
+            guard let self else {
                 return
             }
 
-            var videoPaths: [String] = []
-            var duration: Double = 0.0
-            
-            var hasAdjustments = results.count > 1
-            for result in results {
-                if case let .video(video) = result {
-                    videoPaths.append(video.videoPath)
-                    duration += video.duration
-                }
-            }
-            
-            if duration < 1.0 {
-                self.completion(nil, nil, nil, nil)
-                return
-            }
-            
-            var startTime: Double = 0.0
-            let finalDuration: Double
-            if let trimRange = self.node.previewState?.trimRange {
-                startTime = trimRange.lowerBound
-                finalDuration = trimRange.upperBound - trimRange.lowerBound
-                if finalDuration != duration {
-                    hasAdjustments = true
-                }
+            let liveUploadData: LegacyLiveUploadInterfaceResult?
+            if let current = self.node.currentLiveUploadData {
+                liveUploadData = current
             } else {
-                finalDuration = duration
+                liveUploadData = self.node.liveUploadInterface?.fileUpdated(true) as? LegacyLiveUploadInterfaceResult
             }
-            
-            let dimensions = PixelDimensions(width: 400, height: 400)
-            
-            let thumbnailImage: Signal<UIImage, NoError>
-            if startTime > 0.0 {
-                thumbnailImage = Signal { subscriber in
-                    let composition = composition(with: results)
-                    let imageGenerator = AVAssetImageGenerator(asset: composition)
-                    imageGenerator.maximumSize = dimensions.cgSize
-                    imageGenerator.appliesPreferredTrackTransform = true
-                    
-                    imageGenerator.generateCGImagesAsynchronously(forTimes: [NSValue(time: CMTime(seconds: startTime, preferredTimescale: composition.duration.timescale))], completionHandler: { _, image, _, _, _ in
-                        if let image {
-                            subscriber.putNext(UIImage(cgImage: image))
-                        } else {
-                            subscriber.putNext(video.thumbnail)
-                        }
-                        subscriber.putCompletion()
-                    })
-                    
-                    return ActionDisposable {
-                        imageGenerator.cancelAllCGImageGeneration()
-                    }
-                }
-            } else {
-                thumbnailImage = .single(video.thumbnail)
-            }
-            
-            let _ = (thumbnailImage
-            |> deliverOnMainQueue).startStandalone(next: { [weak self] thumbnailImage in
+
+            self.buildMessage(results: results, liveUploadData: liveUploadData, messageEffect: messageEffect, completion: { [weak self] message in
                 guard let self else {
                     return
                 }
-                let values = MediaEditorValues(
-                    peerId: self.context.account.peerId,
-                    originalDimensions: dimensions,
-                    cropOffset: .zero,
-                    cropRect: CGRect(origin: .zero, size: dimensions.cgSize),
-                    cropScale: 1.0,
-                    cropRotation: 0.0,
-                    cropMirroring: false,
-                    cropOrientation: nil,
-                    gradientColors: nil,
-                    videoTrimRange: self.node.previewState?.trimRange,
-                    videoBounce: false,
-                    videoIsMuted: false,
-                    videoIsFullHd: false,
-                    videoIsMirrored: false,
-                    videoVolume: nil,
-                    additionalVideoPath: nil,
-                    additionalVideoIsDual: false,
-                    additionalVideoMirroringChanges: [],
-                    additionalVideoPosition: nil,
-                    additionalVideoScale: nil,
-                    additionalVideoRotation: nil,
-                    additionalVideoPositionChanges: [],
-                    additionalVideoTrimRange: nil,
-                    additionalVideoOffset: nil,
-                    additionalVideoVolume: nil,
-                    collage: [],
-                    nightTheme: false,
-                    drawing: nil,
-                    maskDrawing: nil,
-                    entities: [],
-                    toolValues: [:],
-                    audioTrack: nil,
-                    audioTrackTrimRange: nil,
-                    audioTrackOffset: nil,
-                    audioTrackVolume: nil,
-                    audioTrackSamples: nil,
-                    collageTrackSamples: nil,
-                    coverImageTimestamp: nil,
-                    coverDimensions: nil,
-                    qualityPreset: .videoMessage
-                )
-                
-                var resourceAdjustments: VideoMediaResourceAdjustments? = nil
-                if let valuesData = try? JSONEncoder().encode(values) {
-                    let data = EngineMemoryBuffer(data: valuesData)
-                    let digest = EngineMemoryBuffer(data: data.md5Digest())
-                    resourceAdjustments = VideoMediaResourceAdjustments(data: data, digest: digest, isStory: false)
-                }
-     
-                let resource: TelegramMediaResource
-                let liveUploadData: LegacyLiveUploadInterfaceResult?
-                if let current = self.node.currentLiveUploadData {
-                    liveUploadData = current
+                if let message {
+                    self.completion(message, silentPosting, scheduleTime, repeatPeriod)
                 } else {
-                    liveUploadData = self.node.liveUploadInterface?.fileUpdated(true) as? LegacyLiveUploadInterfaceResult
+                    self.completion(nil, nil, nil, nil)
                 }
-                if !hasAdjustments, let liveUploadData, let data = try? Data(contentsOf: URL(fileURLWithPath: video.videoPath)) {
-                    resource = LocalFileMediaResource(fileId: liveUploadData.id)
-                    self.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
-                } else {
-                    resource = LocalFileVideoMediaResource(randomId: Int64.random(in: Int64.min ... Int64.max), paths: videoPaths, adjustments: resourceAdjustments)
-                }
-                
-                var previewRepresentations: [TelegramMediaImageRepresentation] = []
-                            
-                let thumbnailResource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
-                let thumbnailSize = video.dimensions.cgSize.aspectFitted(CGSize(width: 320.0, height: 320.0))
-                if let thumbnailData = scaleImageToPixelSize(image: thumbnailImage, size: thumbnailSize)?.jpegData(compressionQuality: 0.4) {
-                    self.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(thumbnailResource.id), data: thumbnailData)
-                    previewRepresentations.append(TelegramMediaImageRepresentation(dimensions: PixelDimensions(thumbnailSize), resource: thumbnailResource, progressiveSizes: [], immediateThumbnailData: nil, hasVideo: false, isPersonal: false))
-                }
-                
-                let tempFile = EngineTempBox.shared.tempFile(fileName: "file")
-                defer {
-                    EngineTempBox.shared.dispose(tempFile)
-                }
-                if let data = compressImageToJPEG(thumbnailImage, quality: 0.7, tempFilePath: tempFile.path) {
-                    context.account.postbox.mediaBox.storeCachedResourceRepresentation(resource, representation: CachedVideoFirstFrameRepresentation(), data: data)
-                }
-
-                let media = TelegramMediaFile(fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: Int64.random(in: Int64.min ... Int64.max)), partialReference: nil, resource: resource, previewRepresentations: previewRepresentations, videoThumbnails: [], immediateThumbnailData: nil, mimeType: "video/mp4", size: nil, attributes: [.FileName(fileName: "video.mp4"), .Video(duration: finalDuration, size: video.dimensions, flags: [.instantRoundVideo], preloadSize: nil, coverTime: nil, videoCodec: nil)], alternativeRepresentations: [])
-                
-                var attributes: [EngineMessage.Attribute] = []
-                if self.cameraState.isViewOnceEnabled {
-                    attributes.append(AutoremoveTimeoutMessageAttribute(timeout: viewOnceTimeout, countdownBeginTime: nil))
-                }
-                if let messageEffect {
-                    attributes.append(EffectMessageAttribute(id: messageEffect.id))
-                }
-        
-                self.completion(.message(
-                    text: "",
-                    attributes: attributes,
-                    inlineStickers: [:],
-                    mediaReference: .standalone(media: media),
-                    threadId: nil,
-                    replyToMessageId: nil,
-                    replyToStoryId: nil,
-                    localGroupingKey: nil,
-                    correlationId: nil,
-                    bubbleUpEmojiOrStickersets: []
-                ), silentPosting, scheduleTime, repeatPeriod)
             })
         })
     }
+
+    // Turns finished segments into the round-video message. Extracted from
+    // sendVideoRecording so IAyuGram's auto-sent chunks can build theirs exactly the same
+    // way; what differs between the two callers is only where the message goes and which
+    // live-upload result belongs to it, so both are passed in.
+    private func buildMessage(results: [VideoMessageCameraScreen.CaptureResult], liveUploadData: LegacyLiveUploadInterfaceResult?, messageEffect: ChatSendMessageEffect?, completion: @escaping (EnqueueMessage?) -> Void) {
+        guard let firstResult = results.first, case let .video(video) = firstResult else {
+            completion(nil)
+            return
+        }
+
+        var videoPaths: [String] = []
+        var duration: Double = 0.0
+
+        var hasAdjustments = results.count > 1
+        for result in results {
+            if case let .video(video) = result {
+                videoPaths.append(video.videoPath)
+                duration += video.duration
+            }
+        }
+
+        if duration < 1.0 {
+            completion(nil)
+            return
+        }
+
+        var startTime: Double = 0.0
+        let finalDuration: Double
+        if let trimRange = self.node.previewState?.trimRange {
+            startTime = trimRange.lowerBound
+            finalDuration = trimRange.upperBound - trimRange.lowerBound
+            if finalDuration != duration {
+                hasAdjustments = true
+            }
+        } else {
+            finalDuration = duration
+        }
+
+        let dimensions = PixelDimensions(width: 400, height: 400)
+
+        let thumbnailImage: Signal<UIImage, NoError>
+        if startTime > 0.0 {
+            thumbnailImage = Signal { subscriber in
+                let composition = composition(with: results)
+                let imageGenerator = AVAssetImageGenerator(asset: composition)
+                imageGenerator.maximumSize = dimensions.cgSize
+                imageGenerator.appliesPreferredTrackTransform = true
+
+                imageGenerator.generateCGImagesAsynchronously(forTimes: [NSValue(time: CMTime(seconds: startTime, preferredTimescale: composition.duration.timescale))], completionHandler: { _, image, _, _, _ in
+                    if let image {
+                        subscriber.putNext(UIImage(cgImage: image))
+                    } else {
+                        subscriber.putNext(video.thumbnail)
+                    }
+                    subscriber.putCompletion()
+                })
+
+                return ActionDisposable {
+                    imageGenerator.cancelAllCGImageGeneration()
+                }
+            }
+        } else {
+            thumbnailImage = .single(video.thumbnail)
+        }
+
+        let _ = (thumbnailImage
+        |> deliverOnMainQueue).startStandalone(next: { [weak self] thumbnailImage in
+            guard let self else {
+                return
+            }
+            let values = MediaEditorValues(
+                peerId: self.context.account.peerId,
+                originalDimensions: dimensions,
+                cropOffset: .zero,
+                cropRect: CGRect(origin: .zero, size: dimensions.cgSize),
+                cropScale: 1.0,
+                cropRotation: 0.0,
+                cropMirroring: false,
+                cropOrientation: nil,
+                gradientColors: nil,
+                videoTrimRange: self.node.previewState?.trimRange,
+                videoBounce: false,
+                videoIsMuted: false,
+                videoIsFullHd: false,
+                videoIsMirrored: false,
+                videoVolume: nil,
+                additionalVideoPath: nil,
+                additionalVideoIsDual: false,
+                additionalVideoMirroringChanges: [],
+                additionalVideoPosition: nil,
+                additionalVideoScale: nil,
+                additionalVideoRotation: nil,
+                additionalVideoPositionChanges: [],
+                additionalVideoTrimRange: nil,
+                additionalVideoOffset: nil,
+                additionalVideoVolume: nil,
+                collage: [],
+                nightTheme: false,
+                drawing: nil,
+                maskDrawing: nil,
+                entities: [],
+                toolValues: [:],
+                audioTrack: nil,
+                audioTrackTrimRange: nil,
+                audioTrackOffset: nil,
+                audioTrackVolume: nil,
+                audioTrackSamples: nil,
+                collageTrackSamples: nil,
+                coverImageTimestamp: nil,
+                coverDimensions: nil,
+                qualityPreset: .videoMessage
+            )
+            
+            var resourceAdjustments: VideoMediaResourceAdjustments? = nil
+            if let valuesData = try? JSONEncoder().encode(values) {
+                let data = EngineMemoryBuffer(data: valuesData)
+                let digest = EngineMemoryBuffer(data: data.md5Digest())
+                resourceAdjustments = VideoMediaResourceAdjustments(data: data, digest: digest, isStory: false)
+            }
+ 
+            let resource: TelegramMediaResource
+            if !hasAdjustments, let liveUploadData, let data = try? Data(contentsOf: URL(fileURLWithPath: video.videoPath)) {
+                resource = LocalFileMediaResource(fileId: liveUploadData.id)
+                self.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
+            } else {
+                resource = LocalFileVideoMediaResource(randomId: Int64.random(in: Int64.min ... Int64.max), paths: videoPaths, adjustments: resourceAdjustments)
+            }
+            
+            var previewRepresentations: [TelegramMediaImageRepresentation] = []
+                        
+            let thumbnailResource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
+            let thumbnailSize = video.dimensions.cgSize.aspectFitted(CGSize(width: 320.0, height: 320.0))
+            if let thumbnailData = scaleImageToPixelSize(image: thumbnailImage, size: thumbnailSize)?.jpegData(compressionQuality: 0.4) {
+                self.context.engine.resources.storeResourceData(id: EngineMediaResource.Id(thumbnailResource.id), data: thumbnailData)
+                previewRepresentations.append(TelegramMediaImageRepresentation(dimensions: PixelDimensions(thumbnailSize), resource: thumbnailResource, progressiveSizes: [], immediateThumbnailData: nil, hasVideo: false, isPersonal: false))
+            }
+            
+            let tempFile = EngineTempBox.shared.tempFile(fileName: "file")
+            defer {
+                EngineTempBox.shared.dispose(tempFile)
+            }
+            if let data = compressImageToJPEG(thumbnailImage, quality: 0.7, tempFilePath: tempFile.path) {
+                context.account.postbox.mediaBox.storeCachedResourceRepresentation(resource, representation: CachedVideoFirstFrameRepresentation(), data: data)
+            }
+
+            let media = TelegramMediaFile(fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: Int64.random(in: Int64.min ... Int64.max)), partialReference: nil, resource: resource, previewRepresentations: previewRepresentations, videoThumbnails: [], immediateThumbnailData: nil, mimeType: "video/mp4", size: nil, attributes: [.FileName(fileName: "video.mp4"), .Video(duration: finalDuration, size: video.dimensions, flags: [.instantRoundVideo], preloadSize: nil, coverTime: nil, videoCodec: nil)], alternativeRepresentations: [])
+            
+            var attributes: [EngineMessage.Attribute] = []
+            if self.cameraState.isViewOnceEnabled {
+                attributes.append(AutoremoveTimeoutMessageAttribute(timeout: viewOnceTimeout, countdownBeginTime: nil))
+            }
+            if let messageEffect {
+                attributes.append(EffectMessageAttribute(id: messageEffect.id))
+            }
     
+            completion(.message(
+                text: "",
+                attributes: attributes,
+                inlineStickers: [:],
+                mediaReference: .standalone(media: media),
+                threadId: nil,
+                replyToMessageId: nil,
+                replyToStoryId: nil,
+                localGroupingKey: nil,
+                correlationId: nil,
+                bubbleUpEmojiOrStickersets: []
+            ))
+        })
+    }
+
     private var waitingForNextResult = false
     public func stopVideoRecording() -> Bool {
         guard !self.didSend else {

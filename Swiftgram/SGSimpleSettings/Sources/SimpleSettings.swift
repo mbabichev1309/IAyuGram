@@ -122,6 +122,7 @@ public class SGSimpleSettings {
         case iaGhostLockHideConsumed
         case iaGhostLockHideStoryViews
         case iaVoiceElapsedTime
+        case iaInfiniteRoundVideos
         case bottomTabStyle
         case rememberLastFolder
         case lastAccountFolders
@@ -304,6 +305,7 @@ public class SGSimpleSettings {
         Keys.iaGhostLockHideConsumed.rawValue: false,
         Keys.iaGhostLockHideStoryViews.rawValue: false,
         Keys.iaVoiceElapsedTime.rawValue: true,
+        Keys.iaInfiniteRoundVideos.rawValue: false,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
         Keys.lastAccountFolders.rawValue: [:],
@@ -498,6 +500,18 @@ public class SGSimpleSettings {
     // so this also makes the two agree. On by default.
     @UserDefault(key: Keys.iaVoiceElapsedTime.rawValue)
     public var iaVoiceElapsedTime: Bool
+
+    // IAyuGram: keep recording a round video past the 60s cap. At the cap the finished
+    // chunk is sent and a new recording starts at once, so a long take arrives as a
+    // series of messages with a short gap at each seam. Off by default — it changes
+    // when a message leaves your device, and a pocket-held button would otherwise
+    // pour chunks into the chat. Capped at iaInfiniteRoundVideoMaxChunks.
+    @UserDefault(key: Keys.iaInfiniteRoundVideos.rawValue)
+    public var iaInfiniteRoundVideos: Bool
+
+    // Hard ceiling on auto-sent chunks in one take (~10 minutes). Reaching it falls
+    // back to stock behaviour: the recording pauses and waits for you to send.
+    public static let iaInfiniteRoundVideoMaxChunks: Int = 10
 
     @UserDefault(key: Keys.rememberLastFolder.rawValue)
     public var rememberLastFolder: Bool

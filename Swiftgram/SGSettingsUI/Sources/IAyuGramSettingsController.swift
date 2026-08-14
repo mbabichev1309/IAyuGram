@@ -612,17 +612,19 @@ private final class IAyuHubArguments {
     let toggleRestoreOwnDeletes: (Bool) -> Void
     let pickMediaCap: () -> Void
     let pickMassDeleteThreshold: () -> Void
+    let toggleInfiniteRoundVideos: (Bool) -> Void
     let openAppearance: () -> Void
     let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, toggleInfiniteRoundVideos: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleSignal = toggleSignal
         self.toggleLock = toggleLock
         self.toggleInvisibleSend = toggleInvisibleSend
         self.toggleRestoreOwnDeletes = toggleRestoreOwnDeletes
         self.pickMediaCap = pickMediaCap
         self.pickMassDeleteThreshold = pickMassDeleteThreshold
+        self.toggleInfiniteRoundVideos = toggleInfiniteRoundVideos
         self.openAppearance = openAppearance
         self.openLocalization = openLocalization
         self.openConnection = openConnection
@@ -655,6 +657,7 @@ private enum IAyuHubSection: Int32 {
     case preserve
     case media
     case massDelete
+    case roundVideo
     case screens
 }
 
@@ -699,6 +702,9 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case massDeleteHeader(String)
     case massDeleteThreshold(String, Int32)
     case massDeleteInfo(String)
+    case roundVideoHeader(String)
+    case infiniteRoundVideos(String, Bool)
+    case roundVideoInfo(String)
     case appearance(String)
     case localization(String)
     case connection(String)
@@ -715,6 +721,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return IAyuHubSection.media.rawValue
         case .massDeleteHeader, .massDeleteThreshold, .massDeleteInfo:
             return IAyuHubSection.massDelete.rawValue
+        case .roundVideoHeader, .infiniteRoundVideos, .roundVideoInfo:
+            return IAyuHubSection.roundVideo.rawValue
         case .appearance, .localization, .connection:
             return IAyuHubSection.screens.rawValue
         }
@@ -738,6 +746,9 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .massDeleteHeader: return 27_1
         case .massDeleteThreshold: return 27_2
         case .massDeleteInfo: return 27_3
+        case .roundVideoHeader: return 27_4
+        case .infiniteRoundVideos: return 27_5
+        case .roundVideoInfo: return 27_6
         case .appearance: return 28
         case .localization: return 29
         case .connection: return 30
@@ -781,6 +792,12 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let (.massDeleteThreshold(a1, a2), .massDeleteThreshold(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.massDeleteInfo(a), .massDeleteInfo(b)):
+            return a == b
+        case let (.roundVideoHeader(a), .roundVideoHeader(b)):
+            return a == b
+        case let (.infiniteRoundVideos(a1, a2), .infiniteRoundVideos(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.roundVideoInfo(a), .roundVideoInfo(b)):
             return a == b
         case let (.appearance(a), .appearance(b)):
             return a == b
@@ -853,6 +870,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             })
         case let .massDeleteInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .roundVideoHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .infiniteRoundVideos(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleInfiniteRoundVideos(newValue)
+            })
+        case let .roundVideoInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .appearance(title):
             return ItemListDisclosureItem(presentationData: presentationData, title: title, label: "", sectionId: self.section, style: .blocks, action: {
                 arguments.openAppearance()
@@ -878,6 +903,7 @@ private struct IAyuHubState: Equatable {
     var restoreOwnDeletes: Bool
     var mediaCapMB: Int32
     var massDeleteThreshold: Int32
+    var infiniteRoundVideos: Bool
 }
 
 public func iAyuGramSettingsController(context: AccountContext) -> ViewController {
@@ -887,7 +913,8 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         invisibleSend: SGSimpleSettings.shared.iaGhostInvisibleSend,
         restoreOwnDeletes: SGSimpleSettings.shared.iaRestoreOwnDeletes,
         mediaCapMB: SGSimpleSettings.shared.iaMediaMaxDownloadMB,
-        massDeleteThreshold: SGSimpleSettings.shared.iaMassDeleteCollapse
+        massDeleteThreshold: SGSimpleSettings.shared.iaMassDeleteCollapse,
+        infiniteRoundVideos: SGSimpleSettings.shared.iaInfiniteRoundVideos
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -987,6 +1014,13 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             ])
         ])
         presentControllerImpl?(actionSheet)
+    }, toggleInfiniteRoundVideos: { value in
+        SGSimpleSettings.shared.iaInfiniteRoundVideos = value
+        updateState { state in
+            var state = state
+            state.infiniteRoundVideos = value
+            return state
+        }
     }, openAppearance: {
         pushControllerImpl?(iAyuGramAppearanceController(context: context))
     }, openLocalization: {
@@ -1016,6 +1050,9 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.massDeleteHeader(IAyuStrings.text(.hubMassDeleteHeader)))
         entries.append(.massDeleteThreshold(IAyuStrings.text(.hubMassDeleteThreshold), state.massDeleteThreshold))
         entries.append(.massDeleteInfo(IAyuStrings.text(.hubMassDeleteInfo)))
+        entries.append(.roundVideoHeader(IAyuStrings.text(.hubRoundVideoHeader)))
+        entries.append(.infiniteRoundVideos(IAyuStrings.text(.hubRoundVideoInfinite), state.infiniteRoundVideos))
+        entries.append(.roundVideoInfo(IAyuStrings.text(.hubRoundVideoInfo)))
         entries.append(.appearance(IAyuStrings.text(.hubAppearance)))
         entries.append(.localization(IAyuStrings.text(.hubLocalization)))
         entries.append(.connection(IAyuStrings.text(.hubConnection)))
