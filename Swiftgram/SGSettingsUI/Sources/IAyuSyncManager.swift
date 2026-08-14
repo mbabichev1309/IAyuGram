@@ -118,6 +118,11 @@ public final class IAyuSyncManager {
     // Sync queue.
     private var bursts: [Int64: IAyuDeleteBurst] = [:]
     private var burstChecksScheduled = Set<Int64>()
+    // Deletes accepted while any burst is open, across ALL chats, and whether that total
+    // has already tripped the global rule. Reset once every burst has closed, so the
+    // count measures one storm rather than the lifetime of the app. Sync queue.
+    private var runDeleteCount = 0
+    private var globalCollapseArmed = false
     // The persisted cursor, in memory. Writing it to UserDefaults per event was one
     // more per-message cost on a path that gets thousands of messages at once; it is
     // written once per flush now.
@@ -364,14 +369,35 @@ public final class IAyuSyncManager {
             self.materialize(event)
             return
         }
+        // The per-chat verdict above cannot see a deletion that is spread thinly across
+        // many chats: forty messages in each of a hundred chats trips nobody's threshold,
+        // so nothing collapses and every one of those messages also queues a media
+        // download. Count the whole run and arm collapsing everywhere once it is clearly
+        // not an ordinary handful.
+        self.runDeleteCount += 1
+        let globalThreshold = Int(SGSimpleSettings.shared.iaMassDeleteGlobalCollapse)
+        if !self.globalCollapseArmed, globalThreshold > 0, self.runDeleteCount >= globalThreshold {
+            self.armGlobalCollapse()
+        }
+
         let now = CFAbsoluteTimeGetCurrent()
         guard var burst = self.bursts[peerId] else {
             // First delete in this chat for a while: it goes into the chat right away,
             // which is what makes an ordinary single deletion feel immediate. The burst
             // it opens is what makes the next one wait for a verdict.
-            self.bursts[peerId] = IAyuDeleteBurst(chatId: event.chatId, lastArrival: now, lastEventDate: event.date.map { Int32(clamping: $0) }, startedAtMilliseconds: Int64(now * 1000.0))
+            var burst = IAyuDeleteBurst(chatId: event.chatId, lastArrival: now, lastEventDate: event.date.map { Int32(clamping: $0) }, startedAtMilliseconds: Int64(now * 1000.0))
+            if self.globalCollapseArmed {
+                // Already in a storm: hold it instead. Letting the first delete through
+                // per chat would leave a stray bubble in every chat touched, and holding
+                // also downloads nothing. The verdict waits until the burst closes, so a
+                // chat that turns out to have lost exactly one message still gets it back
+                // as an ordinary bubble rather than a summary of one.
+                burst.held.append(event)
+            } else {
+                self.materialize(event)
+            }
+            self.bursts[peerId] = burst
             self.scheduleBurstCheck(peerId: peerId)
-            self.materialize(event)
             return
         }
         burst.lastArrival = now
@@ -435,6 +461,19 @@ public final class IAyuSyncManager {
         burst.held = []
     }
 
+    // The run as a whole is a mass deletion, whatever any single chat's count says.
+    // Every burst still waiting for its own verdict gets one now. Sync queue.
+    private func armGlobalCollapse() {
+        self.globalCollapseArmed = true
+        for peerId in Array(self.bursts.keys) {
+            guard var burst = self.bursts[peerId], burst.batch == nil else {
+                continue
+            }
+            self.startCollapsing(peerId: peerId, burst: &burst)
+            self.bursts[peerId] = burst
+        }
+    }
+
     // Sync queue. Re-arms itself while deletes keep arriving.
     private func scheduleBurstCheck(peerId: Int64) {
         guard !self.burstChecksScheduled.contains(peerId) else {
@@ -457,7 +496,17 @@ public final class IAyuSyncManager {
 
     // The burst is over (or has hit the batch cap). Sync queue.
     private func closeBurst(peerId: Int64, burst: IAyuDeleteBurst) {
+        var burst = burst
         self.bursts.removeValue(forKey: peerId)
+
+        // The run as a whole was a mass deletion even though this chat never reached its
+        // own threshold: collapse what it lost instead of restoring it one message at a
+        // time. Only from two, because a summary standing in for a single message is
+        // worse than the message — and it would read "1 messages were deleted".
+        if burst.batch == nil, self.globalCollapseArmed, burst.held.count > 1 {
+            self.startCollapsing(peerId: peerId, burst: &burst)
+        }
+
         if let batch = burst.batch {
             IAyuDeletedBatchStore.shared.close(key: batch)
             if burst.collapsedCount > 0 {
@@ -476,14 +525,30 @@ public final class IAyuSyncManager {
             }
             self.scheduleFlush()
         }
+
+        // Last burst standing: nothing is being deleted anywhere any more, so the next
+        // storm gets judged on its own size. Deliberately after the verdict above, which
+        // still needs to know whether this one was armed.
+        if self.bursts.isEmpty {
+            self.runDeleteCount = 0
+            self.globalCollapseArmed = false
+        }
     }
 
     // Sync queue. Called when the app backgrounds: an open burst holds messages that
     // exist nowhere else yet, so decide it now rather than betting on coming back.
     private func closeAllBursts() {
+        // closeBurst clears the armed flag as soon as the last burst goes, but every burst
+        // in this sweep belongs to the same run and has to get the same verdict — so hold
+        // the flag steady across the loop instead of letting iteration order decide which
+        // chats collapse and which do not.
+        let wasArmed = self.globalCollapseArmed
         for (peerId, burst) in self.bursts {
+            self.globalCollapseArmed = wasArmed
             self.closeBurst(peerId: peerId, burst: burst)
         }
+        self.runDeleteCount = 0
+        self.globalCollapseArmed = false
         IAyuDeletedBatchStore.shared.closeAll()
     }
 
