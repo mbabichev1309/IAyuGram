@@ -21,6 +21,7 @@ import SaveToCameraRoll
 import PresentationDataUtils
 import TelegramPresentationData
 import TelegramStringFormatting
+import TextFormat
 import UndoUI
 import ShimmerEffect
 import AnimatedAvatarSetNode
@@ -3522,6 +3523,56 @@ private final class ChatMessageAuthorContextItemNode: ASDisplayNode, ContextMenu
     }
 }
 
+// MARK: IAyuGram — "first listened at" for our own voice and round messages.
+//
+// Only our own outgoing voice/round in a private cloud chat: that is the one case where
+// Telegram's own row (messages.getOutboxReadDate, i.e. when the message was READ) is
+// misleading, and the only one the companion server can answer — it resolves the chat
+// from a non-channel message id, which is unique across a user's dialogs.
+private func iAyuListenedQuery(message: Message) -> (chatId: Int64, messageId: Int32)? {
+    guard message.id.namespace == Namespaces.Message.Cloud else {
+        return nil
+    }
+    guard !message.flags.contains(.Incoming) else {
+        return nil
+    }
+    var isVoiceOrRound = false
+    for media in message.media {
+        if let file = media as? TelegramMediaFile, file.isVoice || file.isInstantVideo {
+            isVoiceOrRound = true
+        }
+    }
+    guard isVoiceOrRound else {
+        return nil
+    }
+    guard let chatId = iAyuServerChatId(privateChatPeerId: message.id.peerId) else {
+        return nil
+    }
+    return (chatId, message.id.id)
+}
+
+private func iAyuListenedText(timestamp: Int32, presentationData: PresentationData) -> String {
+    var t = time_t(timestamp)
+    var timeinfo = tm()
+    localtime_r(&t, &timeinfo)
+
+    // Seconds are the whole point: "listened at 14:32" cannot be told apart from the
+    // read receipt it replaces. stringForShortTimestamp already takes them — upstream's
+    // three callers in PresenceStrings simply never pass any, and Swiftgram's own
+    // "Seconds in Messages" toggle patches stringForMessageTimestamp, one layer above,
+    // so it never reaches this row.
+    let timeString = stringForShortTimestamp(hours: timeinfo.tm_hour, minutes: timeinfo.tm_min, seconds: timeinfo.tm_sec, dateTimeFormat: presentationData.dateTimeFormat)
+
+    var now = time_t(Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970))
+    var nowinfo = tm()
+    localtime_r(&now, &nowinfo)
+    if timeinfo.tm_year == nowinfo.tm_year, timeinfo.tm_yday == nowinfo.tm_yday {
+        return IAyuStrings.text(.listenedToday, ["time": timeString])
+    }
+    let dateString = stringForTimestamp(day: timeinfo.tm_mday, month: timeinfo.tm_mon + 1, year: timeinfo.tm_year, dateTimeFormat: presentationData.dateTimeFormat)
+    return IAyuStrings.text(.listenedOnDate, ["date": dateString, "time": timeString])
+}
+
 final class ChatReadReportContextItem: ContextMenuCustomItem {
     fileprivate let context: AccountContext
     fileprivate let message: EngineRawMessage
@@ -3574,6 +3625,13 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
     private var customEmojiPacksDisposable: Disposable?
     private var customEmojiPacks: [StickerPackCollectionInfo] = []
     private var firstCustomEmojiReaction: TelegramMediaFile?
+
+    // IAyuGram: when the recipient first played this voice/round message, from the
+    // companion server. nil until it answers — and it may never, for anything sent
+    // before the server started recording, which is why the built-in row stays the
+    // fallback rather than being removed outright.
+    private var iAyuListenedAt: Int32?
+    private var iAyuListenedTask: URLSessionDataTask?
 
     init(presentationData: PresentationData, item: ChatReadReportContextItem, getController: @escaping () -> ContextControllerProtocol?, actionSelected: @escaping (ContextMenuActionResult) -> Void) {
         self.item = item
@@ -3722,11 +3780,35 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
         if !self.item.isEdit {
             item.context.account.viewTracker.updateReactionsForMessageIds(messageIds: [item.message.id], force: true)
         }
+
+        // MARK: IAyuGram — ask the companion server when this was first played.
+        if !item.isEdit, let query = iAyuListenedQuery(message: item.message) {
+            self.iAyuListenedTask = iAyuFetchListenedAt(chatId: query.chatId, messageId: query.messageId, completion: { [weak self] listenedAt in
+                guard let listenedAt = listenedAt else {
+                    return
+                }
+                Queue.mainQueue().async {
+                    self?.iAyuUpdateListened(listenedAt)
+                }
+            })
+        }
     }
 
     deinit {
         self.disposable?.dispose()
         self.customEmojiPacksDisposable?.dispose()
+        self.iAyuListenedTask?.cancel()
+    }
+
+    // Same shape as updateStats: nothing can be drawn before the first layout has been
+    // measured, so a value arriving early is stored and picked up by that pass instead.
+    private func iAyuUpdateListened(_ timestamp: Int32) {
+        self.iAyuListenedAt = timestamp
+        guard let (calculatedWidth, size) = self.validLayout else {
+            return
+        }
+        let (_, apply) = self.updateLayout(constrainedWidth: calculatedWidth, constrainedHeight: size.height)
+        apply(size, .animated(duration: 0.2, curve: .easeInOut))
     }
 
     override func didLoad() {
@@ -3785,8 +3867,15 @@ private final class ChatReadReportContextItemNode: ASDisplayNode, ContextMenuCus
 
         if let currentStats = self.currentStats {
             reactionCount = currentStats.reactionCount
-            
-            if currentStats.peers.isEmpty {
+
+            // MARK: IAyuGram — for our own voice and round messages this REPLACES the
+            // built-in row rather than adding a second one. Upstream shows
+            // messages.getOutboxReadDate, which is when the message was read; for these
+            // two that is a different fact, and showing both would be noise. Checked
+            // ahead of everything else so it applies whether or not a read date exists.
+            if let listenedAt = self.iAyuListenedAt {
+                self.textNode.attributedText = NSAttributedString(string: iAyuListenedText(timestamp: listenedAt, presentationData: self.presentationData), font: Font.regular(floor(self.presentationData.listsFontSize.baseDisplaySize * 0.8)), textColor: self.presentationData.theme.contextMenu.primaryColor)
+            } else if currentStats.peers.isEmpty {
                 if self.item.isEdit, let editedTime = self.item.message.editedTime, editedTime != 0 {
                     let dateText: String
                     if let useEditedTimestamp = self.item.context.getAppConfigValue("message_primary_edited_date") as? Bool, useEditedTimestamp {
