@@ -107,6 +107,9 @@ public class SGSimpleSettings {
         case iaEditHistoryShowDates
         case iaMediaMaxDownloadMB
         case iaMassDeleteCollapse
+        case iaMassDeleteGlobalCollapse
+        case iaPinnedOverBusinessBot
+        case iaHideBusinessBotPanel
         case iaTintDeleted
         case iaTintColorRGB
         case iaGhostHideReadReceipts
@@ -290,6 +293,9 @@ public class SGSimpleSettings {
         Keys.iaEditHistoryShowDates.rawValue: true,
         Keys.iaMediaMaxDownloadMB.rawValue: 64,
         Keys.iaMassDeleteCollapse.rawValue: 50,
+        Keys.iaMassDeleteGlobalCollapse.rawValue: 300,
+        Keys.iaPinnedOverBusinessBot.rawValue: true,
+        Keys.iaHideBusinessBotPanel.rawValue: false,
         Keys.iaTintDeleted.rawValue: true,
         Keys.iaTintColorRGB.rawValue: 0xff3b30,
         Keys.iaGhostHideReadReceipts.rawValue: false,
@@ -438,6 +444,25 @@ public class SGSimpleSettings {
     // a single summary message that opens the full list. 0 disables collapsing.
     @UserDefault(key: Keys.iaMassDeleteCollapse.rawValue)
     public var iaMassDeleteCollapse: Int32
+
+    // IAyuGram: the per-chat threshold above misses deletions SPREAD ACROSS chats —
+    // a hundred chats losing forty messages each clears no chat's threshold, so nothing
+    // collapses and every one of those messages also downloads its media. This counts
+    // the deletes of one sync run across all chats; past it, collapsing arms everywhere.
+    // 0 disables the global rule and leaves only the per-chat one.
+    @UserDefault(key: Keys.iaMassDeleteGlobalCollapse.rawValue)
+    public var iaMassDeleteGlobalCollapse: Int32
+
+    // IAyuGram: a business bot's "this chat is managed by" panel and the pinned message
+    // share one slot, and upstream always gives it to the bot. On, the pinned message
+    // wins whenever there is one and the bot panel shows only in its absence.
+    @UserDefault(key: Keys.iaPinnedOverBusinessBot.rawValue)
+    public var iaPinnedOverBusinessBot: Bool
+
+    // IAyuGram: drop the business-bot panel altogether. Supersedes the setting above,
+    // which is why the hub greys that row out while this one is on.
+    @UserDefault(key: Keys.iaHideBusinessBotPanel.rawValue)
+    public var iaHideBusinessBotPanel: Bool
 
     // IAyuGram: tint deleted-message bubbles (a subtle red overlay following the
     // bubble shape). Toggle + colour in IAyuGram → Appearance.
