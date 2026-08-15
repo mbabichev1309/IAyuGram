@@ -141,6 +141,8 @@ public final class IAyuSyncManager {
     // A socket is mid-handshake — see connectLive.
     private var isConnecting = false
     private var lastForegroundAt = 0.0
+    // A reconnect timer is already armed — see scheduleReconnect.
+    private var reconnectScheduled = false
 
     public init(context: AccountContext) {
         self.context = context
@@ -310,6 +312,12 @@ public final class IAyuSyncManager {
     // gap-sync to catch anything missed while disconnected (dedup guards duplicates).
     private func scheduleReconnect() {
         guard self.active, !self.serverURL.isEmpty else { return }
+        // One timer at a time. Several drops in a row would otherwise each arm their own,
+        // and they all come due against whatever socket exists by then.
+        guard !self.reconnectScheduled else {
+            return
+        }
+        self.reconnectScheduled = true
         let delay = self.reconnectDelay
         // Only count attempts that had a chance. iOS does not let a suspended app open a
         // socket, so growing the delay while we are not on screen walked the backoff to
@@ -322,7 +330,18 @@ public final class IAyuSyncManager {
         }
         Queue.mainQueue().after(delay, { [weak self] in
             guard let self = self, self.active else { return }
-            self.connectLive()
+            self.reconnectScheduled = false
+            // A socket may already be up by now: onForeground reconnects the instant the
+            // app comes back, while this timer was armed by the drop that preceded that.
+            // Reconnecting anyway means connectLive() stops a perfectly good socket and
+            // builds another — which is precisely the duplicate seen on the server, a
+            // disconnect and a connect in the same second, a few seconds after the wake.
+            // Measured over 19h: 206 connections for 82 wakes.
+            if !self.isLiveConnected, !self.isConnecting {
+                self.connectLive()
+            }
+            // The catch-up runs either way. It is cheap, and skipping it would tie
+            // recovering missed events to whether a socket happened to be up.
             self.gapSync(serverURL: self.serverURL, token: self.token, since: Int(SGSimpleSettings.shared.iaSyncCursor))
         })
     }
