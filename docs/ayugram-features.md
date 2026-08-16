@@ -5,6 +5,13 @@ preservation) onto this Swiftgram / telegram-ios fork. This documents
 **what to change, where, and why**, with concrete code seams. It is a
 living design doc, not a spec — verify each seam on device.
 
+> **Status.** Sections 1–4 are built and device-verified; they are kept in
+> their original planning voice because the *reasoning* is still the useful
+> part. What actually shipped, including the features that were never in
+> the original plan and the traps that only appeared on device, is in
+> **section 6**. Read section 6 for the current state of the app; read
+> 1–4 for why it is shaped that way.
+
 > Architectural principle: telegram-ios `Postbox` is already a durable,
 > SQLite-backed store of every message. Unlike AyuGram Desktop (tdesktop
 > keeps messages in memory and therefore needs its own `ayudata.db`), we
@@ -578,6 +585,236 @@ Synergy with Ghost Mode: the consume receipt is already suppressed
   consume path.
 - Unread-counter behaviour when suppressing network reads (1.2 caveat).
 - `_internal_deleteMessages` side-effects when skipped (2.5.2).
+- **Group sender attribution is shipped but still unconfirmed on device.**
+  The server records `sender_id` and the client resolves the author inside
+  the postbox transaction, falling back to the chat when the member is
+  unknown to that database. It needs a *new* delete in a group to exercise:
+  rows captured before the field existed carry no sender and stay
+  group-attributed, and that is not recoverable — the original message is
+  gone by the time anyone asks.
+
+---
+
+## 6. Shipped features and hard-won invariants
+
+Everything below is implemented, on `main`, and verified on the device
+unless stated otherwise. The point of this section is not the feature list
+— it is the invariants, because every one of them is invisible to the
+compiler and most were paid for with a wrong build.
+
+### 6.1 Infinite round videos
+
+Telegram stops a round video at 60s: recording pauses, a preview appears,
+you send. With **IAyuGram ▸ ROUND VIDEOS ▸ "Record past one minute"**
+(`iaInfiniteRoundVideos`, off by default) the finished minute is sent on
+its own and recording carries straight on, so a long take arrives as a
+series of messages. Capped at `iaInfiniteRoundVideoMaxChunks = 10`.
+
+All of it lives in `VideoMessageCameraScreen.swift`.
+
+- **Do not route the chunk through the component's `completion` slot.**
+  That lands in `addCaptureResult`, which calls `pauseCameraCapture()` and
+  swaps the live camera for a preview of what was just shot. The finished
+  segment goes straight to the controller and never enters `node.results`
+  — which is also why `initialDuration` stays 0 and live upload re-arms
+  per chunk.
+- **`CameraOutput` releases its recorder in the stop signal's
+  `afterDisposed`, and `startRecording` bails on `guard videoRecorder == nil`.**
+  So the stop subscription is disposed explicitly inside its own `next`
+  handler. Left to complete on its own, whether the next chunk records at
+  all comes down to main-queue block ordering — and the loss is silent.
+- **The cap check runs inside the recording's own callback and fires on
+  every tick past 59.5s.** A flush already under way has to swallow the
+  rest, or the fall-through calls `onStop()` and pauses mid-chunk.
+- **A stop or send landing inside the flush window** would act on a camera
+  mid-restart and leave the input panel recording forever. Such actions are
+  deferred (`iAyuPendingFlushAction`) and replayed after the restart; the
+  flush flag stays up across the hop, and `lastActionTimestamp` is cleared
+  first because start/stop/send all debounce on it for 0.5s.
+- The restart resumes in the mode the user is actually in. A held button
+  coming back as hands-free would make letting go do nothing.
+
+Chunking backs off to the stock cap where a burst would be wrong or would
+not arrive: view-once, slowmode, paid messages, scheduled-messages view
+(`iAyuCanSendChunk`). Only the first chunk answers a reply.
+
+### 6.2 "First listened at" for own voice / round messages
+
+For our own voice and round messages in a private chat, the context menu's
+timestamp row says when the recipient first **played** it, replacing
+Telegram's row rather than adding a second one.
+
+Upstream shows `messages.getOutboxReadDate` — when the message was *read*.
+For these two media types that is a different fact. The signal that means
+"played" is `updateReadMessagesContents`, whose timestamp nothing on the
+client persists: `ConsumableContentMessageAttribute` is a single Bool. So
+the companion server records it (it sees the update whether or not the
+phone is awake) and the menu asks on demand.
+
+- **On demand, not through the event log.** `GET /listened?chat_id=&message_id=`.
+  The question is asked at most once per message, when its menu opens, so
+  there is nothing to stream and no client store to keep in sync.
+- **The update carries message ids and no peer.** The chat is resolved from
+  the content store by message id — non-channel ids are unique across a
+  user's dialogs, the same property the delete path relies on. `out`
+  separates the two directions: the identical update fires when *we*
+  consume someone else's media.
+- **`content` is pruned after 7 days**, so playing an older message had no
+  row left to resolve from and the mark was dropped silently. Falls back to
+  `messages.getMessages`, which takes a bare id for non-channel messages.
+- **Telethon hands `date` over already parsed as a `datetime`** — `int()`
+  on it raises and took the whole handler down until the journal caught it.
+- **Seconds are the point.** "Listened at 14:32" cannot be told apart from
+  the read receipt it replaces. `stringForShortTimestamp` already accepts
+  them; upstream's three callers in `PresenceStrings` never pass any, and
+  Swiftgram's own "Seconds in Messages" toggle patches
+  `stringForMessageTimestamp` one layer above, so it cannot reach this row.
+  Moving that patch down would put seconds on schedule pickers, timers and
+  presence too.
+- Playback that happened **before** the server started recording is
+  unrecoverable — Telegram never exposes consumption times. The built-in
+  row stays the fallback.
+
+### 6.3 Low-storage warning
+
+Under 5 GB free on the server, the chat list title carries a warning — the
+same slot the capture outage uses.
+
+- **Carried on the `/gap-sync` response, not `/healthz`.** `probeHealth()`
+  is only reachable from `scheduleDegradeCheck()`, i.e. after the live
+  socket has been down past the grace period, so on a healthy phone
+  `/healthz` is never polled at all. Gap-sync is the one call made
+  unconditionally: at launch and on every foreground.
+- **The server sends raw free bytes, not a verdict**, so the threshold
+  lives on the phone and can change without a deploy.
+- **Absolute, not a percentage**: 10% of a large disk is tens of spare
+  gigabytes and would never fire; 10% of a small one can be less than a
+  single capture (`media_max_bytes` is 512 MB).
+- **Low storage is deliberately NOT a case of `IAyuCaptureState`.** The two
+  are independent — capture can be down while the disk is fine, and both
+  can be true at once — and folding them together would make `isDegraded`
+  mean two things. Both renderers ask `chatListWarningKey`, so priority is
+  decided in one place: capture-down wins, because it means data is being
+  lost now rather than later.
+- Verifying this needs the Connection screen's diagnostics (which show the
+  figure the server actually reported) and its "Force the storage warning
+  on" action — a box with hundreds of free gigabytes cannot reach the
+  threshold on demand.
+
+### 6.4 Mass deletions spread across chats
+
+The collapse verdict was judged per chat, so a hundred chats losing forty
+messages each cleared nobody's threshold: nothing collapsed, thousands of
+bubbles landed, and — because a collapsed message downloads nothing and a
+materialized one does — every one of them queued a media fetch behind a
+three-at-a-time gate.
+
+Deletes of a run are now counted across all chats; past
+`iaMassDeleteGlobalCollapse` (default 300, 0 disables) collapsing arms
+everywhere.
+
+- **Holding rather than collapsing on arrival is deliberate.** The verdict
+  waits until the burst closes, so a chat that turns out to have lost
+  exactly one message gets it back as an ordinary bubble instead of a
+  summary standing in for a single message — which would also have read
+  "1 messages were deleted". Holding downloads nothing either way.
+- **The run counter resets only after the last burst closes**, and that
+  reset had to move to the *end* of `closeBurst` because the verdict above
+  still needs to know whether the run was armed. `closeAllBursts` pins the
+  flag across its loop for the same reason.
+- The offered thresholds include 5 on purpose: the case this defends
+  against cannot be reproduced at full size, so the trigger has to be
+  lowerable enough that three chats with two deletes apiece exercise the
+  same path.
+
+### 6.5 Business bot panel vs the pinned message
+
+The "managed by a business bot" panel and the pinned message share one
+slot, and upstream gives it to the bot unconditionally: the panel is
+returned from inside the same block, before the pinned-message branch below
+is ever reached (`ChatInterfaceTitlePanelNodes.swift`). The pinned message
+is not covered — it is never built.
+
+Two settings decide it: `iaPinnedOverBusinessBot` (on) hands the slot to
+the pinned message when there is one; `iaHideBusinessBotPanel` (off)
+removes the panel altogether. The second supersedes the first, so the hub
+greys that row out via the switch item's own `enabled:`, and a tap on the
+greyed row explains why. `displayActionsPanel` in
+`ChatControllerLoadDisplayNode` only feeds `animated` — it reserves no
+space, so there is no phantom inset to guard against.
+
+### 6.6 The live socket — how to measure it
+
+The socket was reconnecting far more than it should. **Two hypotheses read
+out of the code were wrong**, and the method matters more than the fix:
+
+- **Raw connection counts are useless.** Group connects into episodes
+  (runs separated by >90s) and look at connects-per-episode. The episode
+  count is the phone's irreducible wake rate — unlocks, app switches, other
+  apps' banners — and only the ratio measures a bug.
+- What settled it was **the distribution of intra-episode gaps**: a tight
+  cluster at exactly 3–5s, against a `reconnectDelay` starting at 5.0. And
+  the disconnect→connect pair 0.0s apart is not a drop at all — it is one
+  `connectLive()` call, which stops the current session before building a
+  new one.
+- The cause: the app wakes, `onForeground` brings a socket straight up, and
+  a reconnect timer **armed by the drop that preceded the wake** comes due
+  and rebuilds it. The timer never checked whether anything had connected
+  meanwhile. It checks now, and only one timer is armed at a time.
+- Result: 2.64 connects per wake → 1.71, and 49 of 66 episodes are now a
+  single connect. The 3–5s cluster is gone; what remains looks like genuine
+  reconnects on bad connectivity.
+
+### 6.7 Server operations
+
+Three problems, all pre-existing, all invisible until something restarts
+the service — and they compound, because a redeploy hits all three at once.
+
+- **The launch reconcile had no indexes.** `candidates_for_reconcile`
+  correlates content against events with `NOT EXISTS`, and neither side was
+  indexed: measured at 24k × 165k rows, about four billion comparisons,
+  pinning a core for minutes. aiosqlite serializes on one worker thread, so
+  **every API call hangs for that whole window** — which is how it was
+  found, with `/listened` and `/gap-sync` timing out while `/healthz`
+  answered instantly. Indexed `events(message_id, kind)`,
+  `content(message_id)` and the two `seen_at` columns.
+- **`redeploy.sh` reporting "healthy after 2s" is not evidence the server
+  is usable** — `/healthz` is the one endpoint that never touches the DB.
+- **Shutdown was never clean.** `/live` is a WebSocket that by design never
+  closes, so uvicorn waited for it until systemd SIGKILLed the process 90s
+  later. Bounded with `timeout_graceful_shutdown`; a restart is now ~20s.
+- **That is why the WAL never collapsed** — no clean close ever ran, and
+  SQLite's automatic checkpoint is PASSIVE (reuses the file, never
+  truncates). With the shutdown bounded plus an explicit
+  `wal_checkpoint(TRUNCATE)` in the hourly prune loop, the WAL went from
+  375 MiB to 0.
+
+Retention is age-only and that is deliberate: content 7 days, media 30
+days, `events` never pruned (the gap-sync cursor walks it, and the rows are
+small). Measured 2026-08: 9.8 GB of media against 413 GB free, so a
+volume-based cap would solve a problem that does not exist.
+
+### 6.8 Fake premium — investigated and rejected
+
+An AyuGram-style fake-premium flag would be trivial here: every check
+funnels through `Peer.isPremium` (`PeerUtils.swift`), which also feeds
+`context.isPremium` and `UserLimits`. It was still dropped, because it
+unlocks nothing worth having:
+
+- **All the numeric limits are server-enforced.** They arrive as
+  `_premium`/`_default` sets in the app config, but folders answer with
+  `DIALOG_FILTERS_TOO_MUCH`, faved stickers are trimmed server-side, and so
+  on. Raising them locally only moves the refusal later and makes it less
+  legible.
+- **Seeing others' last seen / read time while hiding your own** is server
+  reciprocity: the data is simply not sent, so there is nothing to flip.
+- **Ads are not client-gated either** — `adMessagesContext` is created
+  unconditionally, so the server decides. (Not creating it would remove ads
+  outright, independent of premium.)
+- **Two of the wanted features already ship in Swiftgram, free**: faster
+  downloads (`getSGMaxPendingParts`, 6 → 8/12 parallel parts) and
+  voice-to-text (the paywall block is dead code — `if transcriptionText ==
+  nil && false` — plus an Apple on-device backend).
 
 ## Appendix A — Adding a local `MessageAttribute`
 
