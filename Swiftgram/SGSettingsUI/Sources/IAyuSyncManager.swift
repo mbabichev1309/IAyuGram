@@ -67,6 +67,12 @@ private struct IAyuDeleteBurst {
     let startedAtMilliseconds: Int64
 }
 
+// How often the supervisor checks that a socket exists at all. Long enough to be free
+// (it does nothing when a socket is up), short enough that a stuck reconnect chain
+// costs a minute of live delivery rather than the rest of the day. Deletes are never
+// lost either way — gap-sync backfills whatever the socket missed.
+private let iAyuSupervisorInterval = 60.0
+
 // How long the live socket may stay down before it is reported as an outage. Long
 // enough to cover a reconnect (backoff caps at 60s) and a walk through a dead spot,
 // short enough that a genuinely dead server is noticed the same day.
@@ -193,6 +199,44 @@ public final class IAyuSyncManager {
         // the cursor dedup below drops any that both paths deliver.
         self.connectLive()
         self.gapSync(serverURL: self.serverURL, token: self.token, since: Int(SGSimpleSettings.shared.iaSyncCursor))
+        self.scheduleSupervisor()
+    }
+
+    // Independent watchdog: make sure a socket exists, whatever happened to the
+    // reconnect chain.
+    //
+    // That chain runs entirely through a session's onClosed -> scheduleReconnect ->
+    // timer -> connectLive, and it only stays alive if every failure path calls
+    // onClosed exactly once. A session that hangs without ever reporting success or
+    // error calls nothing: isConnecting is released by its own 20s safety timer,
+    // reconnectScheduled has already been cleared by the timer that ran, and so
+    // nothing is left to arm another one. Observed on device — the socket dropped and
+    // stayed down for 16 minutes with only the degrade probe still running, because the
+    // app sat in the background and no didBecomeActive came to rescue it.
+    //
+    // Before the duplicate-connection fix the reconnect timer fired connectLive()
+    // unconditionally, which was wasteful but doubled as exactly this recovery. Removing
+    // the waste removed the recovery with it, so it is now explicit and cannot latch:
+    // this tick owns no state and re-arms itself no matter what the other flags say.
+    private func scheduleSupervisor() {
+        Queue.mainQueue().after(iAyuSupervisorInterval, { [weak self] in
+            guard let self = self, self.active else {
+                return
+            }
+            self.scheduleSupervisor()
+            guard !self.serverURL.isEmpty, !self.token.isEmpty else {
+                return
+            }
+            // Only while the app can actually open a socket. iOS refuses in the
+            // background, and a doomed attempt would walk the backoff for nothing.
+            guard UIApplication.shared.applicationState == .active else {
+                return
+            }
+            if !self.isLiveConnected, !self.isConnecting, !self.reconnectScheduled {
+                self.reconnectDelay = 5.0
+                self.connectLive()
+            }
+        })
     }
 
     private func connectLive() {
