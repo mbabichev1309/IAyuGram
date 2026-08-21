@@ -70,6 +70,7 @@ func iAyuMassDeletePlaqueItem(key: IAyuDeletedBatchKey, chatId: Int64, count: In
         mediaDuration: nil,
         mediaViewOnce: nil,
         mediaFileName: nil,
+        mediaItems: nil,
         mediaBlob: nil
     )
     return IAyuPendingDelete(event: event, extraAttributes: [TextEntitiesMessageAttribute(entities: [entity])])

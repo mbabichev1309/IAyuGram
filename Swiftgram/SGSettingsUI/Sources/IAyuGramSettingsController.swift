@@ -17,6 +17,31 @@ import SGSimpleSettings
 // pipeline with real events before Postbox materialization in Phase 2b).
 
 // Wire contract — keep in sync with the server (server/models.py MessageEvent).
+// One file of a multi-media message (server models.py EventMediaItem). Only a paid
+// post the account has bought carries more than one: such a post is a single message
+// holding an album, and each file is fetched from /media by its idx.
+struct IAyuMediaItem: Codable, Equatable {
+    let idx: Int
+    let kind: String
+    let mime: String?
+    let size: Int?
+    let width: Int?
+    let height: Int?
+    let duration: Int?
+    let fileName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case idx
+        case kind
+        case mime
+        case size
+        case width
+        case height
+        case duration
+        case fileName = "file_name"
+    }
+}
+
 struct IAyuMessageEvent: Codable, Equatable {
     let cursor: Int
     let kind: String
@@ -43,6 +68,11 @@ struct IAyuMessageEvent: Codable, Equatable {
     let mediaViewOnce: Bool?
     // Original document name, for kinds that have one (document/audio).
     let mediaFileName: String?
+    // Every file of the message, sent only when there is more than one — i.e. for a
+    // paid post the account bought, which is one message carrying an album of up to
+    // ten. The flattened media_* fields above are this list's first item, so an event
+    // without it behaves exactly as before.
+    let mediaItems: [IAyuMediaItem]?
     // LOCAL ONLY — the server never sends this. When a batch is made by collapsing
     // messages that were already in the chat, the media has already been downloaded and
     // there is no server message id left to fetch it by, so the media object itself is
@@ -67,7 +97,19 @@ struct IAyuMessageEvent: Codable, Equatable {
         case mediaDuration = "media_duration"
         case mediaViewOnce = "media_view_once"
         case mediaFileName = "media_file_name"
+        case mediaItems = "media_items"
         case mediaBlob = "media_blob"
+    }
+}
+
+extension IAyuMessageEvent {
+    // The album this event has to materialize, or empty for the ordinary case of a
+    // single file (which the flattened media_* fields already describe).
+    var mediaAlbum: [IAyuMediaItem] {
+        guard let items = self.mediaItems, items.count > 1 else {
+            return []
+        }
+        return items
     }
 }
 
@@ -236,6 +278,42 @@ private let iAyuKnownMediaKinds: Set<String> = [
     "photo", "sticker", "voice", "round", "video", "gif", "audio", "document",
 ]
 
+// The metadata one media builder needs, decoupled from where it came from: an
+// ordinary event describes its single file in flattened media_* fields, while each
+// file of a paid album describes itself in media_items.
+struct IAyuMediaSpec {
+    let idx: Int
+    let kind: String
+    let mime: String?
+    let size: Int?
+    let width: Int?
+    let height: Int?
+    let duration: Int?
+    let fileName: String?
+
+    init(event: IAyuMessageEvent) {
+        self.idx = 0
+        self.kind = event.mediaKind ?? ""
+        self.mime = event.mediaMime
+        self.size = event.mediaSize
+        self.width = event.mediaWidth
+        self.height = event.mediaHeight
+        self.duration = event.mediaDuration
+        self.fileName = event.mediaFileName
+    }
+
+    init(item: IAyuMediaItem) {
+        self.idx = item.idx
+        self.kind = item.kind
+        self.mime = item.mime
+        self.size = item.size
+        self.width = item.width
+        self.height = item.height
+        self.duration = item.duration
+        self.fileName = item.fileName
+    }
+}
+
 // One preserved delete, ready to be written into Postbox. Media (if any) has already
 // been fetched and stored in the media box by the time an item exists.
 struct IAyuPendingDelete {
@@ -245,12 +323,18 @@ struct IAyuPendingDelete {
     // Anything to carry beyond DeletedMessageAttribute. Used by the mass-deletion
     // summary, whose text entities hold the link that opens the collapsed batch.
     let extraAttributes: [MessageAttribute]
+    // One entry per file of a paid album, when this delete is one. Telegram renders an
+    // album as several messages sharing a groupingKey rather than as one message with
+    // several media, so this becomes that many synthetic messages. Empty for everything
+    // else, which stays exactly one message with `media`.
+    let albumMedia: [[Media]]
 
-    init(event: IAyuMessageEvent, media: [Media] = [], appendedNote: String? = nil, extraAttributes: [MessageAttribute] = []) {
+    init(event: IAyuMessageEvent, media: [Media] = [], appendedNote: String? = nil, extraAttributes: [MessageAttribute] = [], albumMedia: [[Media]] = []) {
         self.event = event
         self.media = media
         self.appendedNote = appendedNote
         self.extraAttributes = extraAttributes
+        self.albumMedia = albumMedia
     }
 }
 
@@ -268,6 +352,17 @@ enum IAyuMaterializePlan {
 func iAyuMaterializePlan(event: IAyuMessageEvent) -> IAyuMaterializePlan {
     guard let kind = event.mediaKind, iAyuKnownMediaKinds.contains(kind) else {
         return .ready(nil)
+    }
+    // A paid album is weighed as a whole: downloading half of one would be a worse
+    // answer than describing it, and the parts stay on the server either way.
+    let album = event.mediaAlbum
+    if !album.isEmpty {
+        let limitBytes = Int(SGSimpleSettings.shared.iaMediaMaxDownloadMB) * 1024 * 1024
+        let total = album.reduce(0) { $0 + ($1.size ?? 0) }
+        if limitBytes > 0, total > limitBytes {
+            return .ready(iAyuSkippedMediaNote(event: event, size: total))
+        }
+        return .needsMedia
     }
     // Phase 2 lifted the server-side size limit, so a delete can now point at a
     // multi-hundred-megabyte video. Downloading that unasked would be hostile, so
@@ -296,30 +391,65 @@ func iAyuMaterializeDeleted(context: AccountContext, event: IAyuMessageEvent) {
 // with an item ready to insert. A failed fetch still yields an item (without media),
 // so the delete stays visible either way. The callback runs on a background queue.
 func iAyuFetchAndBuildMedia(context: AccountContext, event: IAyuMessageEvent, completion: @escaping (IAyuPendingDelete) -> Void) {
-    let kind = event.mediaKind ?? ""
-    iAyuFetchMediaFile(event: event) { path, size in
+    let album = event.mediaAlbum
+    if album.isEmpty {
+        iAyuFetchAndBuildOne(context: context, event: event, spec: IAyuMediaSpec(event: event)) { media in
+            completion(IAyuPendingDelete(event: event, media: media))
+        }
+        return
+    }
+    // A paid album, one file at a time rather than all at once: ten videos in flight
+    // for a single preserved post is the same mistake mass deletion already taught us,
+    // and the album has to be assembled in order anyway.
+    var built: [[Media]] = []
+    func fetchNext(_ index: Int) {
+        guard index < album.count else {
+            // Files that failed to download leave empty entries; drop them so the
+            // album is what actually arrived, and fall back to a plain (media-less)
+            // message when nothing did.
+            let usable = built.filter { !$0.isEmpty }
+            completion(IAyuPendingDelete(
+                event: event,
+                media: usable.first ?? [],
+                albumMedia: usable.count > 1 ? usable : []
+            ))
+            return
+        }
+        iAyuFetchAndBuildOne(context: context, event: event, spec: IAyuMediaSpec(item: album[index])) { media in
+            built.append(media)
+            fetchNext(index + 1)
+        }
+    }
+    fetchNext(0)
+}
+
+// Fetch one file of an event and turn it into Postbox media. The callback runs on a
+// background queue, with an empty array when the download or the decode failed — the
+// delete still has to appear either way.
+private func iAyuFetchAndBuildOne(context: AccountContext, event: IAyuMessageEvent, spec: IAyuMediaSpec, completion: @escaping ([Media]) -> Void) {
+    iAyuFetchMediaFile(event: event, idx: spec.idx) { path, size in
         var media: [Media] = []
         let postbox = context.account.postbox
         if let path = path {
-            if kind == "photo" || kind == "sticker" {
+            if spec.kind == "photo" || spec.kind == "sticker" {
                 // Images are small; map the file rather than reading it onto the heap.
                 let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe)
                 if let data = data {
-                    if kind == "photo", let image = iAyuBuildPhotoMedia(postbox: postbox, data: data, event: event) {
+                    if spec.kind == "photo", let image = iAyuBuildPhotoMedia(postbox: postbox, data: data, spec: spec) {
                         media = [image]
-                    } else if let sticker = iAyuBuildStickerMedia(postbox: postbox, data: data, event: event) {
+                    } else if let sticker = iAyuBuildStickerMedia(postbox: postbox, data: data, spec: spec) {
                         media = [sticker]
                     }
                 }
                 try? FileManager.default.removeItem(atPath: path)
-            } else if let file = iAyuBuildFileMedia(postbox: postbox, path: path, size: size, event: event) {
+            } else if let file = iAyuBuildFileMedia(postbox: postbox, path: path, size: size, spec: spec) {
                 // Consumes the temp file (moved into the media box).
                 media = [file]
             } else {
                 try? FileManager.default.removeItem(atPath: path)
             }
         }
-        completion(IAyuPendingDelete(event: event, media: media))
+        completion(media)
     }
 }
 
@@ -355,8 +485,21 @@ func iAyuInsertDeleted(context: AccountContext, items: [IAyuPendingDelete]) {
     }
     let accountPeerId = context.account.peerId
     let _ = (context.account.postbox.transaction { transaction -> Void in
-        let messages = items.map { item in
-            iAyuDeletedStoreMessage(item: item, accountPeerId: accountPeerId, transaction: transaction)
+        let messages = items.flatMap { item -> [StoreMessage] in
+            guard item.albumMedia.count > 1 else {
+                return [iAyuDeletedStoreMessage(item: item, accountPeerId: accountPeerId, transaction: transaction)]
+            }
+            // An album is N messages sharing a groupingKey — that is how Telegram
+            // itself renders one, and a single message holding N media would draw
+            // only the first. The caption goes on the first message alone, the way
+            // an album's caption does.
+            let groupingKey = Int64.random(in: 1 ... Int64.max)
+            return item.albumMedia.enumerated().map { index, media in
+                iAyuDeletedStoreMessage(
+                    item: item, accountPeerId: accountPeerId, transaction: transaction,
+                    mediaOverride: media, groupingKey: groupingKey, includeText: index == 0
+                )
+            }
         }
         let _ = transaction.addMessages(messages, location: .Random)
     }).start()
@@ -364,9 +507,9 @@ func iAyuInsertDeleted(context: AccountContext, items: [IAyuPendingDelete]) {
 
 // Build the synthetic local message for one preserved delete. Takes the transaction
 // because resolving the author needs a database lookup.
-func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, transaction: Transaction) -> StoreMessage {
+func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, transaction: Transaction, mediaOverride: [Media]? = nil, groupingKey: Int64? = nil, includeText: Bool = true) -> StoreMessage {
     let event = item.event
-    let media = item.media
+    let media = mediaOverride ?? item.media
     let appendedNote = item.appendedNote
     let peerId = iAyuPeerId(fromServerChatId: event.chatId)
     // Render on the correct side: the server tells us whether WE sent the original
@@ -387,8 +530,8 @@ func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, tra
     // Prefer the original message time so the placeholder lands in place; fall back
     // to now (bottom of the chat) rather than epoch (which would bury it at the top).
     let timestamp = event.date.map { Int32(clamping: $0) } ?? Int32(Date().timeIntervalSince1970)
-    var text = event.text ?? ""
-    if let appendedNote = appendedNote {
+    var text = includeText ? (event.text ?? "") : ""
+    if includeText, let appendedNote = appendedNote {
         text = text.isEmpty ? appendedNote : "\(text)\n\(appendedNote)"
     }
     // The author has to be a peer this database actually knows, or the bubble draws
@@ -403,7 +546,7 @@ func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, tra
         namespace: Namespaces.Message.Local,
         customStableId: nil,
         globallyUniqueId: nil,
-        groupingKey: nil,
+        groupingKey: groupingKey,
         threadId: nil,
         timestamp: timestamp,
         flags: flags,
@@ -421,12 +564,12 @@ func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, tra
 // Build a local-image media from downloaded bytes: write the bytes into the media
 // box under a fresh local resource, then reference it. The image node loads the
 // cached bytes when the message is displayed (no Telegram CDN round-trip).
-private func iAyuBuildPhotoMedia(postbox: Postbox, data: Data, event: IAyuMessageEvent) -> TelegramMediaImage? {
+private func iAyuBuildPhotoMedia(postbox: Postbox, data: Data, spec: IAyuMediaSpec) -> TelegramMediaImage? {
     let fileId = Int64.random(in: Int64.min ... Int64.max)
     let resource = LocalFileMediaResource(fileId: fileId, size: Int64(data.count))
     postbox.mediaBox.storeResourceData(resource.id, data: data, synchronous: true)
-    let width = Int32(event.mediaWidth ?? 0)
-    let height = Int32(event.mediaHeight ?? 0)
+    let width = Int32(spec.width ?? 0)
+    let height = Int32(spec.height ?? 0)
     let representation = TelegramMediaImageRepresentation(
         dimensions: PixelDimensions(width: width > 0 ? width : 1, height: height > 0 ? height : 1),
         resource: resource,
@@ -449,29 +592,29 @@ private func iAyuBuildPhotoMedia(postbox: Postbox, data: Data, event: IAyuMessag
 // Phase 2: takes the downloaded file's path rather than its bytes and hands it to the
 // media box directly, so preserving a large video never loads it into memory. The temp
 // file is consumed (moved) on success.
-private func iAyuBuildFileMedia(postbox: Postbox, path: String, size: Int64, event: IAyuMessageEvent) -> TelegramMediaFile? {
+private func iAyuBuildFileMedia(postbox: Postbox, path: String, size: Int64, spec: IAyuMediaSpec) -> TelegramMediaFile? {
     let fileId = Int64.random(in: Int64.min ... Int64.max)
     let resource = LocalFileMediaResource(fileId: fileId, size: size)
     postbox.mediaBox.moveResourceData(resource.id, fromTempPath: path)
-    let duration = event.mediaDuration ?? 0
-    let width = Int32(event.mediaWidth ?? 0)
-    let height = Int32(event.mediaHeight ?? 0)
+    let duration = spec.duration ?? 0
+    let width = Int32(spec.width ?? 0)
+    let height = Int32(spec.height ?? 0)
     var attributes: [TelegramMediaFileAttribute] = []
     let mimeType: String
 
-    switch event.mediaKind {
+    switch spec.kind {
     case "voice":
         attributes.append(.Audio(isVoice: true, duration: duration, title: nil, performer: nil, waveform: nil))
-        mimeType = event.mediaMime ?? "audio/ogg"
+        mimeType = spec.mime ?? "audio/ogg"
     case "audio":
         // Music, as opposed to a voice note: keep it a playable audio file.
         attributes.append(.Audio(isVoice: false, duration: duration, title: nil, performer: nil, waveform: nil))
-        attributes.append(.FileName(fileName: event.mediaFileName ?? "audio.mp3"))
-        mimeType = event.mediaMime ?? "audio/mpeg"
+        attributes.append(.FileName(fileName: spec.fileName ?? "audio.mp3"))
+        mimeType = spec.mime ?? "audio/mpeg"
     case "document":
         // No Video/Audio attribute → renders as a file row with the original name.
-        attributes.append(.FileName(fileName: event.mediaFileName ?? "file"))
-        mimeType = event.mediaMime ?? "application/octet-stream"
+        attributes.append(.FileName(fileName: spec.fileName ?? "file"))
+        mimeType = spec.mime ?? "application/octet-stream"
     case "gif":
         // .Animated makes it loop silently, the way the original animation did.
         attributes.append(.Animated)
@@ -483,8 +626,8 @@ private func iAyuBuildFileMedia(postbox: Postbox, path: String, size: Int64, eve
             coverTime: nil,
             videoCodec: nil
         ))
-        attributes.append(.FileName(fileName: event.mediaFileName ?? "animation.mp4"))
-        mimeType = event.mediaMime ?? "video/mp4"
+        attributes.append(.FileName(fileName: spec.fileName ?? "animation.mp4"))
+        mimeType = spec.mime ?? "video/mp4"
     default:
         // "video" and "round". A round message is materialized as a plain video:
         // round videos render via a dedicated top-level item node
@@ -499,8 +642,8 @@ private func iAyuBuildFileMedia(postbox: Postbox, path: String, size: Int64, eve
             coverTime: nil,
             videoCodec: nil
         ))
-        attributes.append(.FileName(fileName: event.mediaFileName ?? "video.mp4"))
-        mimeType = event.mediaMime ?? "video/mp4"
+        attributes.append(.FileName(fileName: spec.fileName ?? "video.mp4"))
+        mimeType = spec.mime ?? "video/mp4"
     }
     return TelegramMediaFile(
         fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: fileId),
@@ -521,13 +664,13 @@ private func iAyuBuildFileMedia(postbox: Postbox, path: String, size: Int64, eve
 // with a Sticker attribute), so animated/video stickers render properly. If the
 // dedicated sticker item node doesn't render our synthetic local message (as with
 // round video), fall back to treating it as an image/video.
-private func iAyuBuildStickerMedia(postbox: Postbox, data: Data, event: IAyuMessageEvent) -> TelegramMediaFile? {
+private func iAyuBuildStickerMedia(postbox: Postbox, data: Data, spec: IAyuMediaSpec) -> TelegramMediaFile? {
     let fileId = Int64.random(in: Int64.min ... Int64.max)
     let resource = LocalFileMediaResource(fileId: fileId, size: Int64(data.count))
     postbox.mediaBox.storeResourceData(resource.id, data: data, synchronous: true)
-    let width = Int32(event.mediaWidth ?? 0)
-    let height = Int32(event.mediaHeight ?? 0)
-    let mimeType = event.mediaMime ?? "image/webp"
+    let width = Int32(spec.width ?? 0)
+    let height = Int32(spec.height ?? 0)
+    let mimeType = spec.mime ?? "image/webp"
     var attributes: [TelegramMediaFileAttribute] = [
         .Sticker(displayText: "", packReference: nil, maskData: nil),
         .ImageSize(size: PixelDimensions(width: width > 0 ? width : 512, height: height > 0 ? height : 512)),
@@ -559,7 +702,7 @@ private func iAyuBuildStickerMedia(postbox: Postbox, data: Data, event: IAyuMess
 // runs on a background queue with the file's path and size, or (nil, 0) on failure.
 // A download task streams to disk, so a large video never sits in memory; the caller
 // owns the temp file and must move or delete it.
-private func iAyuFetchMediaFile(event: IAyuMessageEvent, completion: @escaping (String?, Int64) -> Void) {
+private func iAyuFetchMediaFile(event: IAyuMessageEvent, idx: Int = 0, completion: @escaping (String?, Int64) -> Void) {
     let serverURL = SGSimpleSettings.shared.iaSyncServerURL.trimmingCharacters(in: .whitespacesAndNewlines)
     let token = SGSimpleSettings.shared.iaSyncClientToken
     guard !serverURL.isEmpty, !token.isEmpty,
@@ -568,10 +711,16 @@ private func iAyuFetchMediaFile(event: IAyuMessageEvent, completion: @escaping (
         return
     }
     components.path = "/media"
-    components.queryItems = [
+    var queryItems = [
         URLQueryItem(name: "chat_id", value: "\(event.chatId)"),
         URLQueryItem(name: "message_id", value: "\(event.messageId)"),
     ]
+    if idx != 0 {
+        // Only a paid album goes past 0, and omitting it keeps the request identical
+        // to what servers older than album support answer.
+        queryItems.append(URLQueryItem(name: "idx", value: "\(idx)"))
+    }
+    components.queryItems = queryItems
     guard let url = components.url else {
         completion(nil, 0)
         return
@@ -587,7 +736,7 @@ private func iAyuFetchMediaFile(event: IAyuMessageEvent, completion: @escaping (
         // URLSession deletes the download's temp file as soon as this handler
         // returns, so move it somewhere we control before doing anything else.
         let destination = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("iayu_media_\(event.chatId)_\(event.messageId)")
+            .appendingPathComponent("iayu_media_\(event.chatId)_\(event.messageId)_\(idx)")
         try? FileManager.default.removeItem(at: destination)
         do {
             try FileManager.default.moveItem(at: location, to: destination)

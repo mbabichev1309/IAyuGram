@@ -172,6 +172,7 @@ private func iAyuArchivedEvent(message: Message, chatId: Int64) -> IAyuMessageEv
         mediaDuration: nil,
         mediaViewOnce: nil,
         mediaFileName: mediaFileName,
+        mediaItems: nil,
         mediaBlob: mediaBlob
     )
 }
