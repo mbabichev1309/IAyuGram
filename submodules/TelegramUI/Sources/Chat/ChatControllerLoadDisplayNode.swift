@@ -2761,6 +2761,15 @@ extension ChatControllerImpl {
             
             strongSelf.dismissAllTooltips()
             
+            // IAyuGram: one microphone, one recording. With out-of-chat recording on, one
+            // may be running elsewhere right now — and a second would take the audio
+            // session away from it, killing it with nothing shown to say why.
+            if strongSelf.iAyuBlockedByGlobalRecording {
+                let chatTitle = IAyuGlobalRecordingManager.shared.activeTarget?.peerTitle ?? ""
+                strongSelf.controllerInteraction?.displayUndo(.info(title: nil, text: IAyuStrings.text(.recordingBusyElsewhere, ["chat": chatTitle]), timeout: nil, customUndoText: nil))
+                return
+            }
+            
             strongSelf.mediaRecordingModeTooltipController?.dismiss()
             strongSelf.interfaceInteraction?.updateShowWebView { _ in
                 return false

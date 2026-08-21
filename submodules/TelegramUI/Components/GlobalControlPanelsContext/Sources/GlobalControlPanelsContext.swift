@@ -143,17 +143,23 @@ public final class GlobalControlPanelsContext {
         public let liveLocation: LiveLocation?
         public let chatListNotice: ChatListNotice?
         public let groupCall: GroupCall?
+        // IAyuGram: a voice recording running outside its chat. It takes the panel slot
+        // from music when both apply — the recording is the thing you have to be able to
+        // stop, and the music it interrupted is paused anyway.
+        public let iAyuRecording: IAyuGlobalRecordingState?
 
         public init(
             mediaPlayback: MediaPlayback?,
             liveLocation: LiveLocation?,
             chatListNotice: ChatListNotice?,
-            groupCall: GroupCall?
+            groupCall: GroupCall?,
+            iAyuRecording: IAyuGlobalRecordingState? = nil
         ) {
             self.mediaPlayback = mediaPlayback
             self.liveLocation = liveLocation
             self.chatListNotice = chatListNotice
             self.groupCall = groupCall
+            self.iAyuRecording = iAyuRecording
         }
     }
 
@@ -182,11 +188,27 @@ public final class GlobalControlPanelsContext {
         var groupCall: GroupCall?
         var currentGroupCallDisposable: Disposable?
 
+        var iAyuRecording: IAyuGlobalRecordingState?
+        var iAyuRecordingDisposable: Disposable?
+
         init(queue: Queue, context: AccountContext, mediaPlayback: Bool, liveLocationMode: LiveLocationMode?, groupCalls: EnginePeer.Id?, chatListNotices: Bool) {
             self.queue = queue
             self.context = context
             
             self.stateValue = State(mediaPlayback: nil, liveLocation: nil, chatListNotice: nil, groupCall: nil)
+
+            // IAyuGram: unconditional, unlike the panels above — a live microphone must be
+            // visible on every screen that hosts panels, whatever that screen asked for.
+            self.iAyuRecordingDisposable = (IAyuGlobalRecordingManager.shared.state
+            |> deliverOnMainQueue).start(next: { [weak self] recording in
+                guard let self else {
+                    return
+                }
+                if self.iAyuRecording != recording {
+                    self.iAyuRecording = recording
+                    self.notifyStateUpdated()
+                }
+            })
 
             if mediaPlayback {
                 self.mediaStatusDisposable = (context.sharedContext.mediaManager.globalMediaPlayerState
@@ -619,6 +641,7 @@ public final class GlobalControlPanelsContext {
             self.liveLocationDisposable?.dispose()
             self.suggestedChatListNoticeDisposable?.dispose()
             self.currentGroupCallDisposable?.dispose()
+            self.iAyuRecordingDisposable?.dispose()
         }
         
         private func notifyStateUpdated() {
@@ -645,7 +668,8 @@ public final class GlobalControlPanelsContext {
                     )
                 },
                 chatListNotice: self.chatListNotice,
-                groupCall: self.groupCall
+                groupCall: self.groupCall,
+                iAyuRecording: self.iAyuRecording
             )
             self.statePipe.putNext(self.stateValue)
         }

@@ -807,6 +807,13 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             
             strongSelf.chatDisplayNode.messageTransitionNode.dismissMessageReactionContexts()
             
+            // IAyuGram: a locked voice recording leaves with you instead of stopping you.
+            // It has to happen here rather than in viewWillDisappear: this is the decision
+            // point, and the discard alert below is exactly what we are replacing.
+            if strongSelf.iAyuCanHandOffAudioRecording {
+                strongSelf.iAyuHandOffAudioRecording()
+            }
+            
             if strongSelf.presentVoiceMessageDiscardAlert(action: action, performAction: false) {
                 return false
             }
@@ -7634,6 +7641,11 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     
     override public func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        
+        // IAyuGram: take back a recording that kept running while we were away — or, if it
+        // was interrupted meanwhile, pick its audio up as a draft. Both cases resolve here
+        // so returning to the chat is all the user has to do.
+        self.iAyuReclaimAudioRecording()
                 
         if self.willAppear {
             self.chatDisplayNode.historyNode.refreshPollActionsForVisibleMessages()

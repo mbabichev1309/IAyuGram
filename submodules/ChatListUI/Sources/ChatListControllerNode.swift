@@ -1486,7 +1486,22 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
                 )))
             )
         }
-        if let mediaPlayback = self.controller?.globalControlPanelsContextState?.mediaPlayback {
+        // IAyuGram: a voice recording running outside its chat owns this slot, and takes
+        // it from music — see IAyuRecordingHeaderPanelComponent.
+        if let iAyuRecording = self.controller?.globalControlPanelsContextState?.iAyuRecording {
+            panels.append(HeaderPanelContainerComponent.Panel(
+                key: "iAyuRecording",
+                orderIndex: 1,
+                component: AnyComponent(IAyuRecordingHeaderPanelComponent(
+                    context: self.context,
+                    theme: self.presentationData.theme,
+                    data: iAyuRecording,
+                    controller: { [weak self] in
+                        return self?.controller
+                    }
+                )))
+            )
+        } else if let mediaPlayback = self.controller?.globalControlPanelsContextState?.mediaPlayback {
             if let playlistLocation = mediaPlayback.playlistLocation as? PeerMessagesPlaylistLocation, case let .custom(_, _, _, _, hidePanel) = playlistLocation, hidePanel {
                 
             } else {
