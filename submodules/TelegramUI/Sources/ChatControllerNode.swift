@@ -1083,8 +1083,19 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
             guard let strongSelf = self else {
                 return false
             }
-            if let _ = strongSelf.chatPresentationInterfaceState.inputTextPanelState.mediaRecordingState {
-                return true
+            if let mediaRecordingState = strongSelf.chatPresentationInterfaceState.inputTextPanelState.mediaRecordingState {
+                // IAyuGram: a LOCKED voice recording is allowed to leave the chat, so the
+                // swipe-back gesture must stay alive for it — the back button went through
+                // attemptNavigation and worked, while the swipe was killed here before it
+                // could start. Everything else still blocks: while a recording is unlocked
+                // a horizontal drag means "slide to cancel", and video blocks outright.
+                var iAyuAllowsSwipeBack = false
+                if case let .audio(_, isLocked) = mediaRecordingState, isLocked, strongSelf.controller?.iAyuCanHandOffAudioRecording == true {
+                    iAyuAllowsSwipeBack = true
+                }
+                if !iAyuAllowsSwipeBack {
+                    return true
+                }
             }
             var hasChatThemeScreen = false
             strongSelf.controller?.window?.forEachController { c in
