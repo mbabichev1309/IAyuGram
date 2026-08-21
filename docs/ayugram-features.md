@@ -816,6 +816,54 @@ unlocks nothing worth having:
   voice-to-text (the paywall block is dead code — `if transcriptionText ==
   nil && false` — plus an Apple on-device backend).
 
+### 6.9 Paid ("stars") posts — preserved once bought
+
+A paid post is `messageMediaPaidMedia`: one message holding an album of up
+to ten files behind a stars paywall. What is possible here is fixed by the
+protocol, not by a client flag:
+
+- **Before purchase there is nothing to save.** Each item arrives as
+  `messageExtendedMediaPreview` — width, height, a blurred thumbnail and a
+  duration. No document, no photo, no file reference. The gate is on
+  Telegram's servers, so neither the client nor the companion session can
+  turn a preview into bytes.
+- **After purchase the items are ordinary photos and documents**, and the
+  capture server downloads them like anything else. That is the feature: a
+  post you paid for survives the channel deleting it, or closing.
+
+How the two halves meet:
+
+- **`paid_pending`** records a post seen while still locked, because the
+  moment it unlocks is the only moment worth acting on.
+- **`UpdateMessageExtendedMedia`** is that moment. The purchase happens on
+  the phone but is recorded against the *account*, so the companion session
+  receives the update too, refetches the message and captures it at once.
+- **A launch sweep re-checks `paid_pending`** (`paid_recheck_max`, 200 by
+  default). It is the only path that survives a purchase made while the
+  server was down — `StringSession` persists no pts, so nothing is replayed,
+  exactly as with the delete reconcile.
+
+Album plumbing, which touched everything downstream:
+
+- **Media is keyed by `(chat_id, message_id, idx)`.** sqlite cannot alter a
+  primary key, so the table is rebuilt on first open; existing rows become
+  idx 0 and keep their encrypted file names (`{chat}_{msg}.enc`), later
+  items get `_{idx}`.
+- **The gap-sync join is pinned to `idx = 0`.** Left unrestricted, a
+  three-file album would have returned its own event three times.
+- **`media_items`** carries the whole album in an event, and only when there
+  is more than one file — so ordinary events are byte-for-byte what they
+  were, and a client that predates the field still renders the album's first
+  photo from the flattened `media_*` fields.
+- **On the client an album is N messages sharing a `groupingKey`**, not one
+  message with N media: that is how Telegram renders an album, and a single
+  message would have drawn only the first file. The caption goes on the
+  first message alone. Files are fetched one at a time (`&idx=N`), for the
+  same reason mass deletion paces its downloads.
+- **A paid album collapsed into a mass-deletion batch** keeps only its first
+  file when restored — the batch store carries one encoded media per entry.
+  The rest stays on the server until retention expires.
+
 ## Appendix A — Adding a local `MessageAttribute`
 
 A `MessageAttribute` is a Postbox-serialized object attached to a message.
