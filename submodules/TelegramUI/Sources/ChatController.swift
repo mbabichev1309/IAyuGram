@@ -521,6 +521,11 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     
     var beginMediaRecordingRequestId: Int = 0
     var lockMediaRecordingRequestId: Int?
+    // IAyuGram: attemptNavigation has agreed to let a locked voice recording leave, but
+    // the swipe that asked can still be cancelled — it is consulted at gesture BEGIN
+    // (NavigationContainer.panGesture). So the handover waits for viewDidDisappear, the
+    // only signal that we actually left, and this remembers that it is due.
+    var iAyuPendingRecordingHandoff = false
     
     var updateSlowmodeStatusDisposable = MetaDisposable()
     var updateSlowmodeStatusTimerValue: Int32?
@@ -808,13 +813,12 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             strongSelf.chatDisplayNode.messageTransitionNode.dismissMessageReactionContexts()
             
             // IAyuGram: a locked voice recording leaves with you instead of stopping you.
-            // It has to happen here rather than in viewWillDisappear: this is the decision
-            // point, and the discard alert below is exactly what we are replacing.
+            // The decision is made here — this is where the discard alert we are replacing
+            // lives — but the handover itself is deferred to viewDidDisappear, because a
+            // swipe-back consults this at gesture begin and may still be cancelled.
             if strongSelf.iAyuCanHandOffAudioRecording {
-                strongSelf.iAyuHandOffAudioRecording()
-            }
-            
-            if strongSelf.presentVoiceMessageDiscardAlert(action: action, performAction: false) {
+                strongSelf.iAyuPendingRecordingHandoff = true
+            } else if strongSelf.presentVoiceMessageDiscardAlert(action: action, performAction: false) {
                 return false
             }
                         
@@ -7642,9 +7646,11 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     override public func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         
-        // IAyuGram: take back a recording that kept running while we were away — or, if it
-        // was interrupted meanwhile, pick its audio up as a draft. Both cases resolve here
-        // so returning to the chat is all the user has to do.
+        // IAyuGram: a swipe-back that was cancelled agreed to hand the recording over and
+        // then never left — so the handover is off again. Then take back a recording that
+        // kept running while we were away, or, if it was interrupted meanwhile, pick its
+        // audio up as a draft. Both cases resolve here, so returning is all the user does.
+        self.iAyuPendingRecordingHandoff = false
         self.iAyuReclaimAudioRecording()
                 
         if self.willAppear {
@@ -8221,6 +8227,17 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                     }
                 }
             })
+        }
+    }
+    
+    override public func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        
+        // IAyuGram: we are really gone (a cancelled swipe never reaches here), so the
+        // recording can now change hands and keep running.
+        if self.iAyuPendingRecordingHandoff {
+            self.iAyuPendingRecordingHandoff = false
+            self.iAyuHandOffAudioRecording()
         }
     }
     
