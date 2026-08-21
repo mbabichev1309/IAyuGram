@@ -1443,7 +1443,30 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                 footerPanels.append(panel)
             }
         }
-        if !hideTopPanels, self.chatPresentationInterfaceState.search == nil, let mediaPlayback = self.controller?.globalControlPanelsContextState?.mediaPlayback {
+        // IAyuGram: the recording panel, except in the chat the recording belongs to —
+        // there the input panel already shows it, and two pults for one recording is one
+        // too many.
+        var iAyuRecordingPanel: IAyuGlobalRecordingState?
+        if !hideTopPanels, self.chatPresentationInterfaceState.search == nil, let recording = self.controller?.globalControlPanelsContextState?.iAyuRecording {
+            if let peerId = self.chatPresentationInterfaceState.chatLocation.peerId, recording.target.matches(peerId: peerId, threadId: self.chatPresentationInterfaceState.chatLocation.threadId) {
+            } else {
+                iAyuRecordingPanel = recording
+            }
+        }
+        if let iAyuRecordingPanel {
+            headerPanels.append(HeaderPanelContainerComponent.Panel(
+                key: "iAyuRecording",
+                orderIndex: 1,
+                component: AnyComponent(IAyuRecordingHeaderPanelComponent(
+                    context: self.context,
+                    theme: self.chatPresentationInterfaceState.theme,
+                    data: iAyuRecordingPanel,
+                    controller: { [weak self] in
+                        return self?.controller
+                    }
+                )))
+            )
+        } else if !hideTopPanels, self.chatPresentationInterfaceState.search == nil, let mediaPlayback = self.controller?.globalControlPanelsContextState?.mediaPlayback {
             if let playlistLocation = mediaPlayback.playlistLocation as? PeerMessagesPlaylistLocation, case let .custom(_, _, _, _, hidePanel) = playlistLocation, hidePanel {
                 
             } else {

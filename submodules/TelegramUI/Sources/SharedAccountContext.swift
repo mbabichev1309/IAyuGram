@@ -1800,6 +1800,11 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     }
     
     public func switchToAccount(id: AccountRecordId, fromSettingsController settingsController: ViewController? = nil, withChatListController chatListController: ViewController? = nil) {
+        // IAyuGram: a voice recording running outside its chat belongs to the account it
+        // started in. Sending it into an account the user has walked away from would be a
+        // surprise, and leaving it running would be a microphone with no panel to show it,
+        // so it ends here — and is kept as a draft in its own chat.
+        IAyuGlobalRecordingManager.shared.handleAccountSwitch(to: id)
         if self.activeAccountsValue?.primary?.account.id == id {
             return
         }

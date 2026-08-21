@@ -1989,6 +1989,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
+        // IAyuGram: recording in the background needs an audio-mode entitlement and a
+        // different session policy, so an out-of-chat recording ends here. Unlike
+        // upstream's stopMediaRecorder it is not discarded — the audio waits as a draft.
+        IAyuGlobalRecordingManager.shared.handleApplicationBackgrounded()
         let _ = (self.sharedContextPromise.get()
         |> take(1)
         |> deliverOnMainQueue).start(next: { sharedApplicationContext in

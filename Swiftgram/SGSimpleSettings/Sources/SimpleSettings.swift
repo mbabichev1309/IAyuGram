@@ -126,6 +126,7 @@ public class SGSimpleSettings {
         case iaGhostLockHideStoryViews
         case iaVoiceElapsedTime
         case iaInfiniteRoundVideos
+        case iaGlobalVoiceRecording
         case bottomTabStyle
         case rememberLastFolder
         case lastAccountFolders
@@ -312,6 +313,7 @@ public class SGSimpleSettings {
         Keys.iaGhostLockHideStoryViews.rawValue: false,
         Keys.iaVoiceElapsedTime.rawValue: true,
         Keys.iaInfiniteRoundVideos.rawValue: false,
+        Keys.iaGlobalVoiceRecording.rawValue: false,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
         Keys.lastAccountFolders.rawValue: [:],
@@ -537,6 +539,13 @@ public class SGSimpleSettings {
     // Hard ceiling on auto-sent chunks in one take (~10 minutes). Reaching it falls
     // back to stock behaviour: the recording pauses and waits for you to send.
     public static let iaInfiniteRoundVideoMaxChunks: Int = 10
+
+    // IAyuGram: a locked voice recording keeps running after you leave the chat, with a
+    // panel at the top of the screen to send or discard it. Off by default because it
+    // lifts navigation guards that have always been there (attemptNavigation and the
+    // voice-discard alert), so a regression has to be one toggle away from gone.
+    @UserDefault(key: Keys.iaGlobalVoiceRecording.rawValue)
+    public var iaGlobalVoiceRecording: Bool
 
     @UserDefault(key: Keys.rememberLastFolder.rawValue)
     public var rememberLastFolder: Bool

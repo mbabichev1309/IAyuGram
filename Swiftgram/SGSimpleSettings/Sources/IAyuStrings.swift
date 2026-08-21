@@ -137,6 +137,15 @@ public enum IAyuStringKey: String, CaseIterable {
     case hubRoundVideoInfinite
     case hubRoundVideoInfo
 
+    // Voice recording that survives leaving the chat
+    case hubVoiceRecordingHeader
+    case hubVoiceRecordingGlobal
+    case hubVoiceRecordingInfo
+    case recordingBusyElsewhere
+    case recordingPanelTitle
+    case recordingPanelCancel
+    case recordingPanelSend
+
     // "First listened at" — replaces the read date for our own voice/round messages
     case listenedToday
     case listenedOnDate
@@ -267,6 +276,13 @@ public final class IAyuStrings {
 
         .hubRoundVideoHeader: "ROUND VIDEOS",
         .hubRoundVideoInfinite: "Record past one minute",
+        .hubVoiceRecordingHeader: "VOICE RECORDING",
+        .hubVoiceRecordingGlobal: "Keep recording outside the chat",
+        .hubVoiceRecordingInfo: "Telegram cancels a voice message the moment you leave the chat. With this on, a locked recording keeps running: a panel appears at the top of the screen with the elapsed time, and from it you can send or discard. Only one recording at a time, and only in ordinary chats — scheduled messages, slowmode and paid chats keep the old behaviour. Leaving the app still ends the recording, but it is kept as a draft instead of being thrown away.",
+        .recordingBusyElsewhere: "Already recording in {chat}",
+        .recordingPanelTitle: "Recording voice message",
+        .recordingPanelCancel: "Discard",
+        .recordingPanelSend: "Send",
         .hubRoundVideoInfo: "Telegram stops a round video at one minute. With this on, the finished minute is sent on its own and recording carries straight on, so a long take arrives as a series of messages. There is a short gap at each seam, and the recording still stops for good after ten of them.",
 
         .listenedToday: "Listened at {time}",
@@ -314,6 +330,9 @@ public final class IAyuStrings {
                             .massDeleteCollapseExisting, .massDeleteCollapseExistingConfirm,
                             .massDeleteCollapseExistingNothing, .massDeleteCollapseExistingDone]),
         ("ROUND VIDEOS", [.hubRoundVideoHeader, .hubRoundVideoInfinite, .hubRoundVideoInfo]),
+        ("VOICE RECORDING", [.hubVoiceRecordingHeader, .hubVoiceRecordingGlobal,
+                             .hubVoiceRecordingInfo, .recordingBusyElsewhere,
+                             .recordingPanelTitle, .recordingPanelCancel, .recordingPanelSend]),
         ("LISTENED AT", [.listenedToday, .listenedOnDate]),
         ("QUICK ACTION", [.shortcutGhostTitle, .shortcutGhostSubtitle]),
         ("MY PROFILE", [.myProfileStatusGhost])
@@ -422,6 +441,13 @@ public final class IAyuStrings {
         case .hubRoundVideoHeader: return "Section header"
         case .hubRoundVideoInfinite: return "Record past one minute"
         case .hubRoundVideoInfo: return "Section footnote"
+        case .hubVoiceRecordingHeader: return "Section header"
+        case .hubVoiceRecordingGlobal: return "Keep recording outside the chat"
+        case .hubVoiceRecordingInfo: return "Section footnote"
+        case .recordingBusyElsewhere: return "Recording elsewhere warning"
+        case .recordingPanelTitle: return "Recording panel title"
+        case .recordingPanelCancel: return "Recording panel: discard"
+        case .recordingPanelSend: return "Recording panel: send"
         case .listenedToday: return "Today"
         case .listenedOnDate: return "Earlier day"
         case .shortcutGhostTitle: return "Title"
