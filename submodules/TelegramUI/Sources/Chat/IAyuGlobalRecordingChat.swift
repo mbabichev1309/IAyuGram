@@ -6,6 +6,7 @@ import AccountContext
 import ChatInterfaceState
 import ChatPresentationInterfaceState
 import AudioWaveform
+import VideoMessageCameraScreen
 import SGSimpleSettings
 
 // MARK: IAyuGram — handing a voice recording to and from IAyuGlobalRecordingManager.
@@ -73,28 +74,9 @@ extension ChatControllerImpl {
             return
         }
 
-        var viewOnceAvailable = false
-        if peerId.namespace == Namespaces.Peer.CloudUser, peerId != self.context.account.peerId {
-            var isBot = false
-            if let user = self.presentationInterfaceState.renderedPeer?.peer as? TelegramUser, user.botInfo != nil {
-                isBot = true
-            }
-            viewOnceAvailable = !isBot
-        }
-
-        let target = IAyuGlobalRecordingTarget(
-            accountId: self.context.account.id,
-            peerId: peerId,
-            threadId: self.chatLocation.threadId,
-            replySubject: self.presentationInterfaceState.interfaceState.replyMessageSubject?.subjectModel,
-            silentPosting: self.presentationInterfaceState.interfaceState.silentPosting,
-            viewOnceAvailable: viewOnceAvailable,
-            peerTitle: self.presentationInterfaceState.renderedPeer?.chatMainPeer.flatMap { EnginePeer($0).displayTitle(strings: self.presentationData.strings, displayOrder: self.presentationData.nameDisplayOrder) } ?? ""
-        )
-
         IAyuGlobalRecordingManager.shared.adopt(
             recorder: recorder,
-            target: target,
+            target: self.iAyuRecordingTarget(peerId: peerId),
             account: self.context.account
         )
 
@@ -175,5 +157,175 @@ extension ChatControllerImpl {
             return false
         }
         return true
+    }
+}
+
+// MARK: IAyuGram — the same trick for a round video.
+//
+// Structurally simpler than voice, because the camera screen already builds its own
+// message and is already presented on the root window rather than inside the chat. What it
+// is NOT is leavable: it covers the chat completely, so no back gesture can even start
+// while it is up. Leaving is therefore always explicit — the minimize button or a swipe
+// down on the circle — and the screen only asks; the handover happens here, because half
+// of it is the chat letting go of its own recorder state.
+
+extension ChatControllerImpl {
+    /// Off by default, like the voice counterpart: it takes a screen that used to be modal
+    /// and makes it dismissable, so the user should be the one to ask for that.
+    var iAyuGlobalRoundRecordingEnabled: Bool {
+        return SGSimpleSettings.shared.iaGlobalRoundRecording
+    }
+
+    /// Whether the running round video may leave this chat. Same rules as voice — locked
+    /// only, and only where the send can be done from a snapshot — with one addition: a
+    /// recording that is already minimized is not a candidate again.
+    var iAyuCanHandOffVideoRecording: Bool {
+        guard self.iAyuGlobalRoundRecordingEnabled, let controller = self.videoRecorderValue else {
+            return false
+        }
+        guard !controller.iAyuIsMinimized else {
+            return false
+        }
+        guard self.lockMediaRecordingRequestId == self.beginMediaRecordingRequestId else {
+            return false
+        }
+        guard self.chatLocation.peerId != nil else {
+            return false
+        }
+        if case .scheduledMessages = self.presentationInterfaceState.subject {
+            return false
+        }
+        if case .customChatContents = self.chatLocation {
+            return false
+        }
+        if self.presentationInterfaceState.slowmodeState != nil {
+            return false
+        }
+        if self.presentationInterfaceState.sendPaidMessageStars != nil {
+            return false
+        }
+        if self.presentationInterfaceState.interfaceState.mediaDraftState != nil {
+            return false
+        }
+        return true
+    }
+
+    /// Where a recording started in this chat is going, snapshotted. Shared by both kinds:
+    /// the send happens after the chat may be gone, so nothing here may be re-read later.
+    func iAyuRecordingTarget(peerId: PeerId) -> IAyuGlobalRecordingTarget {
+        var viewOnceAvailable = false
+        if peerId.namespace == Namespaces.Peer.CloudUser, peerId != self.context.account.peerId {
+            var isBot = false
+            if let user = self.presentationInterfaceState.renderedPeer?.peer as? TelegramUser, user.botInfo != nil {
+                isBot = true
+            }
+            viewOnceAvailable = !isBot
+        }
+
+        return IAyuGlobalRecordingTarget(
+            accountId: self.context.account.id,
+            peerId: peerId,
+            threadId: self.chatLocation.threadId,
+            replySubject: self.presentationInterfaceState.interfaceState.replyMessageSubject?.subjectModel,
+            silentPosting: self.presentationInterfaceState.interfaceState.silentPosting,
+            viewOnceAvailable: viewOnceAvailable,
+            peerTitle: self.presentationInterfaceState.renderedPeer?.chatMainPeer.flatMap { EnginePeer($0).displayTitle(strings: self.presentationData.strings, displayOrder: self.presentationData.nameDisplayOrder) } ?? ""
+        )
+    }
+
+    /// Take the camera screen off the window, give it to the manager, and stop being the
+    /// chat that owns a recording. Everything the chat taught the screen is replaced first:
+    /// every one of those closures reads live chat state, and there will be no chat.
+    func iAyuHandOffVideoRecording() {
+        guard self.iAyuCanHandOffVideoRecording, let controller = self.videoRecorderValue, let peerId = self.chatLocation.peerId else {
+            return
+        }
+
+        let manager = IAyuGlobalRecordingManager.shared
+        manager.adoptVideo(
+            controller: controller,
+            target: self.iAyuRecordingTarget(peerId: peerId),
+            account: self.context.account
+        )
+
+        controller.completion = { [weak controller] message, _, _, _ in
+            guard let controller else {
+                return
+            }
+            if let message {
+                manager.enqueueFromVideoSession(message, isChunk: false)
+            } else {
+                manager.videoSessionEnded(controller: controller)
+            }
+            controller.iAyuTearDown()
+        }
+        controller.onChunk = { message in
+            manager.enqueueFromVideoSession(message, isChunk: true)
+        }
+        // The chat's version of this asks about slowmode, paid messages and scheduling —
+        // all of which were checked before the handover and none of which can change while
+        // the chat is not even on screen.
+        controller.iAyuCanSendChunk = {
+            return true
+        }
+        // Reaching the one-minute cap with chunking off used to mean "show the preview".
+        // There is nowhere to show it, so the take is closed and kept; the chat turns it
+        // into a preview the next time it is opened.
+        controller.onStop = { [weak controller] in
+            guard let controller else {
+                return
+            }
+            controller.iAyuStopRecordingKeepingTake()
+            manager.videoRecordingDidFinish()
+        }
+        controller.onResume = {
+        }
+        controller.iAyuCanMinimize = {
+            return false
+        }
+        controller.iAyuOnMinimize = {
+        }
+
+        // The subscription discards whatever recorder it is replacing. This one is not
+        // being replaced, it is being handed over, so it has to be exempted by name.
+        self.iAyuHandedOffVideoRecorder = controller
+        let _ = controller.iAyuDetachForMinimize()
+        self.recorderFeedback = nil
+        self.videoRecorder.set(.single(nil))
+    }
+
+    /// Take a minimized round video back. Called when the chat appears, so returning to it
+    /// is all the user has to do — and if the take ended while we were away, it lands in
+    /// the preview state instead, which is where the in-chat flow would have put it.
+    func iAyuReclaimVideoRecording() {
+        guard self.iAyuGlobalRoundRecordingEnabled, let peerId = self.chatLocation.peerId else {
+            return
+        }
+        guard self.videoRecorderValue == nil else {
+            return
+        }
+        guard let reclaimed = IAyuGlobalRecordingManager.shared.reclaimVideo(peerId: peerId, threadId: self.chatLocation.threadId) else {
+            return
+        }
+        guard let controller = reclaimed.controller as? VideoMessageCameraScreen else {
+            return
+        }
+
+        self.iAyuHandedOffVideoRecorder = nil
+        self.iAyuConfigureVideoRecorder(controller)
+        controller.iAyuPrepareForRestore()
+        // It was handed over locked, and it comes back locked: an unlocked panel would mean
+        // "release to send" with no finger anywhere near the button.
+        self.lockMediaRecordingRequestId = self.beginMediaRecordingRequestId
+        self.videoRecorder.set(.single(controller))
+
+        if reclaimed.isFinished {
+            // Deferred, so the promise's subscription has already presented the screen and
+            // put the input panel back into its recording state — which is the state the
+            // preview transition expects to be leaving.
+            Queue.mainQueue().justDispatch { [weak self] in
+                self?.dismissMediaRecorder(.pause)
+            }
+        }
     }
 }

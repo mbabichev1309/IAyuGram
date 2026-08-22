@@ -659,6 +659,8 @@ private final class VideoMessageCameraScreenComponent: CombinedComponent {
         
         let viewOnceButton = Child(PlainButtonComponent.self)
         let recordMoreButton = Child(PlainButtonComponent.self)
+        // IAyuGram: leave the chat, keep recording.
+        let minimizeButton = Child(PlainButtonComponent.self)
         
         let muteIcon = Child(ZStack<Empty>.self)
         
@@ -861,6 +863,51 @@ private final class VideoMessageCameraScreenComponent: CombinedComponent {
                 }
             }
             
+            // IAyuGram: the minimize control, third in the bottom-left row after flip and
+            // flash. Only while the recording is locked and this chat allows the handover,
+            // so it never appears where pressing it would strand a recording.
+            if let controller = component.getController(), controller.iAyuMinimizeAvailable {
+                let getController = component.getController
+                let buttonSide: CGFloat = 40.0
+                let minimizeButton = minimizeButton.update(
+                    component: PlainButtonComponent(
+                        content: AnyComponent(
+                            ZStack([
+                                AnyComponentWithIdentity(
+                                    id: "background",
+                                    component: AnyComponent(GlassBackgroundComponent(
+                                        size: CGSize(width: buttonSide, height: buttonSide),
+                                        cornerRadius: buttonSide * 0.5,
+                                        isDark: environment.theme.overallDarkAppearance,
+                                        tintColor: .init(kind: .panel)
+                                    ))
+                                ),
+                                AnyComponentWithIdentity(
+                                    id: "icon",
+                                    component: AnyComponent(
+                                        BundleIconComponent(
+                                            name: "Media Gallery/Minimize",
+                                            tintColor: environment.theme.chat.inputPanel.panelControlColor
+                                        )
+                                    )
+                                )
+                            ])
+                        ),
+                        effectAlignment: .center,
+                        action: {
+                            getController()?.iAyuRequestMinimize()
+                        }
+                    ),
+                    availableSize: availableSize,
+                    transition: context.transition
+                )
+                context.add(minimizeButton
+                    .position(CGPoint(x: sideInset + buttonSide * 2.5 + 22.0, y: availableSize.height - buttonSide / 2.0 - 8.0))
+                    .appear(.default(scale: true, alpha: true))
+                    .disappear(.default(scale: true, alpha: true))
+                )
+            }
+
             if showViewOnce {
                 let viewOnceButton = viewOnceButton.update(
                     component: PlainButtonComponent(
@@ -1065,6 +1112,12 @@ public class VideoMessageCameraScreen: ViewController {
         var previewStatePromise = Promise<PreviewState?>()
         
         var transitioningToPreview = false
+
+        // IAyuGram: while the circle lives in the header panel, or is being dragged towards
+        // it, the layout must not reposition it — the panel owns its frame then.
+        fileprivate var iAyuIsMinimized = false
+        private var iAyuIsDraggingMinimize = false
+        private weak var iAyuMinimizePanRecognizer: UIPanGestureRecognizer?
         
         init(controller: VideoMessageCameraScreen) {
             self.controller = controller
@@ -1199,6 +1252,72 @@ public class VideoMessageCameraScreen: ViewController {
             
             let pinchGestureRecognizer = UIPinchGestureRecognizer(target: self, action: #selector(self.handlePinch(_:)))
             self.view.addGestureRecognizer(pinchGestureRecognizer)
+
+            // IAyuGram: drag the circle down to leave the chat with the recording. On the
+            // circle rather than the whole screen, so it cannot be confused with anything
+            // the surrounding controls do.
+            let minimizePanRecognizer = UIPanGestureRecognizer(target: self, action: #selector(self.iAyuHandleMinimizePan(_:)))
+            self.previewContainerView.addGestureRecognizer(minimizePanRecognizer)
+            self.iAyuMinimizePanRecognizer = minimizePanRecognizer
+        }
+
+        // MARK: IAyuGram — leaving with the recording
+
+        fileprivate func iAyuPrepareForMinimize() {
+            self.iAyuIsMinimized = true
+            self.iAyuIsDraggingMinimize = false
+            self.iAyuMinimizePanRecognizer?.isEnabled = false
+            self.previewContainerView.transform = .identity
+            self.backgroundView.removeFromSuperview()
+            self.previewContainerView.removeFromSuperview()
+        }
+
+        fileprivate func iAyuRestoreAfterMinimize() {
+            self.iAyuIsMinimized = false
+            self.iAyuMinimizePanRecognizer?.isEnabled = true
+            self.previewContainerView.transform = .identity
+            // Below the component host, which is where it started: the buttons draw over
+            // the circle, not under it.
+            self.containerView.insertSubview(self.previewContainerView, at: 0)
+        }
+
+        @objc private func iAyuHandleMinimizePan(_ recognizer: UIPanGestureRecognizer) {
+            guard let controller = self.controller, controller.iAyuMinimizeAvailable else {
+                return
+            }
+            let translation = recognizer.translation(in: self.view)
+            let isDownward = translation.y > 0.0 && abs(translation.y) > abs(translation.x)
+
+            switch recognizer.state {
+            case .changed:
+                guard isDownward else {
+                    return
+                }
+                self.iAyuIsDraggingMinimize = true
+                self.previewContainerView.transform = CGAffineTransform(translationX: 0.0, y: min(translation.y, 140.0))
+            case .ended, .cancelled, .failed:
+                guard self.iAyuIsDraggingMinimize else {
+                    return
+                }
+                let velocity = recognizer.velocity(in: self.view)
+                if isDownward && (translation.y > 60.0 || velocity.y > 500.0) {
+                    self.previewContainerView.transform = .identity
+                    self.iAyuIsDraggingMinimize = false
+                    controller.iAyuRequestMinimize()
+                } else {
+                    UIView.animate(withDuration: 0.3, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.0, animations: {
+                        self.previewContainerView.transform = .identity
+                    }, completion: { [weak self] _ in
+                        self?.iAyuIsDraggingMinimize = false
+                    })
+                }
+            default:
+                break
+            }
+        }
+
+        fileprivate var iAyuHoldsPreviewFrame: Bool {
+            return self.iAyuIsMinimized || self.iAyuIsDraggingMinimize
         }
                 
         fileprivate func setupCamera() {
@@ -1652,7 +1771,12 @@ public class VideoMessageCameraScreen: ViewController {
                 previewFrame = CGRect(origin: CGPoint(x: floorToScreenPixels((layout.size.width - previewSide) / 2.0), y: max(layout.statusBarHeight ?? 0.0 + 24.0, availableHeight * 0.4 - previewSide / 2.0)), size: CGSize(width: previewSide, height: previewSide))
             }
             if !self.animatingIn {
-                transition.setFrame(view: self.previewContainerView, frame: previewFrame)
+                // IAyuGram: the inner content keeps its full-size layout even while the
+                // circle sits in the header panel — the panel scales the whole thing down —
+                // but its position there is not ours to set.
+                if !self.iAyuHoldsPreviewFrame {
+                    transition.setFrame(view: self.previewContainerView, frame: previewFrame)
+                }
                 transition.setFrame(view: self.previewContainerContentView, frame: CGRect(origin: CGPoint(), size: previewFrame.size))
             }
             transition.setCornerRadius(layer: self.previewContainerContentView.layer, cornerRadius: previewSide / 2.0)
@@ -1781,7 +1905,9 @@ public class VideoMessageCameraScreen: ViewController {
     fileprivate var allowLiveUpload: Bool
     fileprivate var viewOnceAvailable: Bool
     
-    fileprivate let completion: (EnqueueMessage?, Bool?, Int32?, Int32?) -> Void
+    // IAyuGram: a var, not a let. A minimized recording has no chat controller left to
+    // answer to, so the global manager puts its own handler here.
+    public var completion: (EnqueueMessage?, Bool?, Int32?, Int32?) -> Void
     
     private var audioSessionDisposable: Disposable?
     
@@ -1863,6 +1989,62 @@ public class VideoMessageCameraScreen: ViewController {
             return false
         }
         return self.iAyuCanSendChunk()
+    }
+
+    // MARK: IAyuGram — recording a round video outside the chat it started in.
+    //
+    // Unlike a voice recording, this screen cannot simply be left behind: it covers the
+    // whole chat, so no back gesture can even begin while it is up. Leaving is therefore an
+    // explicit act — the minimize button, or a swipe down on the circle — and what it does
+    // is take this controller off the window while the capture session keeps running. The
+    // preview circle is handed to the header panel, which is the only pult from then on.
+
+    /// Asked before the minimize control is offered at all: the chat says whether this
+    /// recording is one that may leave (see `iAyuCanHandOffVideoRecording`).
+    public var iAyuCanMinimize: () -> Bool = { return false }
+    /// Actually leave. The chat performs the handover — only it can clear its own recorder
+    /// state — so this is a request, not the act.
+    public var iAyuOnMinimize: () -> Void = {}
+
+    public private(set) var iAyuIsMinimized = false
+    fileprivate var iAyuDidFinishTake = false
+
+    /// Locked recordings only, for the same reason as voice: an unlocked one is a finger
+    /// held on a button, and letting go sends it.
+    public var iAyuMinimizeAvailable: Bool {
+        guard !self.didSend, !self.iAyuIsMinimized else {
+            return false
+        }
+        guard case .handsFree = self.cameraState.recording else {
+            return false
+        }
+        return self.iAyuCanMinimize()
+    }
+
+    fileprivate func iAyuRequestMinimize() {
+        guard self.iAyuMinimizeAvailable else {
+            return
+        }
+        self.hapticFeedback.impact(.light)
+        self.iAyuOnMinimize()
+    }
+
+    /// Take the screen off the window and give up the preview circle, WITHOUT stopping the
+    /// camera — `requestDismiss` is the path that stops it, and this deliberately is not
+    /// that path. The caller must already hold this controller (the manager does) or it
+    /// deallocates the moment the presentation context lets go.
+    public func iAyuDetachForMinimize() -> UIView {
+        self.iAyuIsMinimized = true
+        self.node.iAyuPrepareForMinimize()
+        self.dismiss(animated: false)
+        return self.node.previewContainerView
+    }
+
+    /// Put the circle back where the layout expects it. The chat re-presents the screen
+    /// straight after, which lays everything else out again.
+    public func iAyuPrepareForRestore() {
+        self.iAyuIsMinimized = false
+        self.node.iAyuRestoreAfterMinimize()
     }
 
     fileprivate func iAyuSendChunk(video: VideoMessageCameraScreen.CaptureResult.Video) {
@@ -2524,5 +2706,49 @@ private final class VideoMessageSendMessageContextPreview: UIView, ChatSendMessa
     
     func update(containerSize: CGSize, transition: ComponentTransition) -> CGSize {
         return self.previewContainerContentView.bounds.size
+    }
+}
+
+// MARK: IAyuGram — what the global recording manager is allowed to do with this screen.
+//
+// The manager lives in AccountContext and cannot name this type, so this is the whole of
+// the surface it sees. Note that sending is still this screen's own job: it holds the
+// results and knows how to turn them into a message. All the manager decides is where the
+// message goes.
+extension VideoMessageCameraScreen: IAyuGlobalVideoRecorder {
+    public var iAyuPreviewView: UIView {
+        return self.node.previewContainerView
+    }
+
+    public var iAyuRecordingDuration: Signal<TimeInterval, NoError> {
+        return self.recordingStatus.duration
+    }
+
+    public var iAyuIsFinished: Bool {
+        return self.iAyuDidFinishTake
+    }
+
+    public func iAyuSendFromPanel() {
+        self.sendVideoRecording()
+    }
+
+    public func iAyuCancelFromPanel() {
+        self.iAyuTearDown()
+    }
+
+    /// Stop the camera and let this controller go. The same thing `discardVideo` does for
+    /// an on-screen recorder, minus the animation: there is nothing on screen to animate,
+    /// this controller was taken off the window when it was minimized.
+    public func iAyuTearDown() {
+        self.node.cancelRecording.invoke(Void())
+        self.requestDismiss(animated: false)
+    }
+
+    public func iAyuStopRecordingKeepingTake() {
+        guard !self.iAyuDidFinishTake else {
+            return
+        }
+        self.iAyuDidFinishTake = true
+        let _ = self.stopVideoRecording()
     }
 }

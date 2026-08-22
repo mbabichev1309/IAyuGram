@@ -193,105 +193,124 @@ extension ChatControllerImpl {
                     viewOnceAvailable: viewOnceAvailable,
                     inputPanelFrame: (currentInputPanelFrame, self.chatDisplayNode.inputNode != nil),
                     chatNode: self.chatDisplayNode.historyNode,
-                    completion: { [weak self] message, silentPosting, scheduleTime, repeatPeriod in
-                        guard let self, let videoController = self.videoRecorderValue else {
-                            return
-                        }
-                        
-                        guard var message else {
-                            self.recorderFeedback?.error()
-                            self.recorderFeedback = nil
-                            self.videoRecorder.set(.single(nil))
-                            return
-                        }
-                        
-                        let replyMessageSubject = self.presentationInterfaceState.interfaceState.replyMessageSubject
-                        let correlationId = Int64.random(in: 0 ..< Int64.max)
-                        message = message
-                            .withUpdatedReplyToMessageId(replyMessageSubject?.subjectModel)
-                            .withUpdatedCorrelationId(correlationId)
-                        
-                        var shouldAnimateMessageTransition = self.chatDisplayNode.shouldAnimateMessageTransition
-                        if self.chatLocation.threadId == nil, let channel = self.presentationInterfaceState.renderedPeer?.peer as? TelegramChannel, channel.isMonoForum, let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = self.presentationInterfaceState.renderedPeer?.peers[linkedMonoforumId] as? TelegramChannel, mainChannel.hasPermission(.manageDirect) {
-                            shouldAnimateMessageTransition = false
-                        }
-                        
-                        var usedCorrelationId = false
-                        if scheduleTime == nil, !self.iAyuInvisibleSendDiverts, shouldAnimateMessageTransition, let extractedView = videoController.extractVideoSnapshot() {
-                            usedCorrelationId = true
-                            self.chatDisplayNode.messageTransitionNode.add(correlationId: correlationId, source:  .videoMessage(ChatMessageTransitionNodeImpl.Source.VideoMessage(view: extractedView)), initiated: { [weak videoController, weak self] in
-                                videoController?.hideVideoSnapshot()
-                                guard let self else {
-                                    return
-                                }
-                                self.videoRecorder.set(.single(nil))
-                            })
-                        } else {
-                            self.videoRecorder.set(.single(nil))
-                        }
-                        
-                        self.chatDisplayNode.setupSendActionOnViewUpdate({ [weak self] in
-                            if let self {
-                                self.chatDisplayNode.collapseInput()
-                                
-                                self.updateChatPresentationInterfaceState(animated: true, interactive: false, {
-                                    $0.updatedInterfaceState { $0.withUpdatedReplyMessageSubject(nil).withUpdatedSendMessageEffect(nil).withUpdatedMediaDraftState(nil).withUpdatedPostSuggestionState(nil) }
-                                })
-                            }
-                        }, usedCorrelationId ? correlationId : nil)
-                        
-                        let messages = [message]
-                        let effectiveSilentPosting = silentPosting ?? self.presentationInterfaceState.interfaceState.silentPosting
-                        let transformedMessages = self.transformEnqueueMessages(messages, silentPosting: effectiveSilentPosting, scheduleTime: scheduleTime, repeatPeriod: repeatPeriod)
-                        
-                        self.sendMessages(transformedMessages)
+                    completion: { _, _, _, _ in
                     }
                 )
-                controller.onResume = { [weak self] in
-                    guard let self else {
-                        return
-                    }
-                    self.resumeMediaRecorder()
-                }
-                // IAyuGram: a round video recorded past the one-minute cap arrives here one
-                // finished chunk at a time. Unlike `completion` this must not tear the
-                // recorder down — the camera is still running on the next chunk.
-                controller.iAyuCanSendChunk = { [weak self] in
-                    guard let self else {
-                        return false
-                    }
-                    if case .scheduledMessages = self.presentationInterfaceState.subject {
-                        return false
-                    }
-                    if self.presentationInterfaceState.slowmodeState != nil {
-                        return false
-                    }
-                    if self.presentationInterfaceState.sendPaidMessageStars != nil {
-                        return false
-                    }
-                    return true
-                }
-                controller.onChunk = { [weak self] message in
-                    guard let self else {
-                        return
-                    }
-                    var message = message
-                    // Only the first chunk answers the reply — after that the subject is
-                    // cleared, so the rest of the take goes out as plain messages.
-                    if let replyMessageSubject = self.presentationInterfaceState.interfaceState.replyMessageSubject {
-                        message = message.withUpdatedReplyToMessageId(replyMessageSubject.subjectModel)
-                        self.updateChatPresentationInterfaceState(animated: false, interactive: false, {
-                            $0.updatedInterfaceState { $0.withUpdatedReplyMessageSubject(nil) }
-                        })
-                    }
-                    let silentPosting = self.presentationInterfaceState.interfaceState.silentPosting
-                    self.sendMessages(self.transformEnqueueMessages([message], silentPosting: silentPosting))
-                }
+                self.iAyuConfigureVideoRecorder(controller)
                 self.videoRecorder.set(.single(controller))
             }
         }
     }
-    
+
+    // IAyuGram: everything the chat teaches a round-video recorder, in one place, because a
+    // recording that was minimized and later reclaimed has to be taught it all again — the
+    // global manager replaced these with its own on the way out.
+    func iAyuConfigureVideoRecorder(_ controller: VideoMessageCameraScreen) {
+        controller.completion = { [weak self] message, silentPosting, scheduleTime, repeatPeriod in
+            guard let self, let videoController = self.videoRecorderValue else {
+                return
+            }
+            
+            guard var message else {
+                self.recorderFeedback?.error()
+                self.recorderFeedback = nil
+                self.videoRecorder.set(.single(nil))
+                return
+            }
+            
+            let replyMessageSubject = self.presentationInterfaceState.interfaceState.replyMessageSubject
+            let correlationId = Int64.random(in: 0 ..< Int64.max)
+            message = message
+                .withUpdatedReplyToMessageId(replyMessageSubject?.subjectModel)
+                .withUpdatedCorrelationId(correlationId)
+            
+            var shouldAnimateMessageTransition = self.chatDisplayNode.shouldAnimateMessageTransition
+            if self.chatLocation.threadId == nil, let channel = self.presentationInterfaceState.renderedPeer?.peer as? TelegramChannel, channel.isMonoForum, let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = self.presentationInterfaceState.renderedPeer?.peers[linkedMonoforumId] as? TelegramChannel, mainChannel.hasPermission(.manageDirect) {
+                shouldAnimateMessageTransition = false
+            }
+            
+            var usedCorrelationId = false
+            if scheduleTime == nil, !self.iAyuInvisibleSendDiverts, shouldAnimateMessageTransition, let extractedView = videoController.extractVideoSnapshot() {
+                usedCorrelationId = true
+                self.chatDisplayNode.messageTransitionNode.add(correlationId: correlationId, source:  .videoMessage(ChatMessageTransitionNodeImpl.Source.VideoMessage(view: extractedView)), initiated: { [weak videoController, weak self] in
+                    videoController?.hideVideoSnapshot()
+                    guard let self else {
+                        return
+                    }
+                    self.videoRecorder.set(.single(nil))
+                })
+            } else {
+                self.videoRecorder.set(.single(nil))
+            }
+            
+            self.chatDisplayNode.setupSendActionOnViewUpdate({ [weak self] in
+                if let self {
+                    self.chatDisplayNode.collapseInput()
+                    
+                    self.updateChatPresentationInterfaceState(animated: true, interactive: false, {
+                        $0.updatedInterfaceState { $0.withUpdatedReplyMessageSubject(nil).withUpdatedSendMessageEffect(nil).withUpdatedMediaDraftState(nil).withUpdatedPostSuggestionState(nil) }
+                    })
+                }
+            }, usedCorrelationId ? correlationId : nil)
+            
+            let messages = [message]
+            let effectiveSilentPosting = silentPosting ?? self.presentationInterfaceState.interfaceState.silentPosting
+            let transformedMessages = self.transformEnqueueMessages(messages, silentPosting: effectiveSilentPosting, scheduleTime: scheduleTime, repeatPeriod: repeatPeriod)
+            
+            self.sendMessages(transformedMessages)
+        }
+        controller.onResume = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.resumeMediaRecorder()
+        }
+        // IAyuGram: a round video recorded past the one-minute cap arrives here one
+        // finished chunk at a time. Unlike `completion` this must not tear the
+        // recorder down — the camera is still running on the next chunk.
+        controller.iAyuCanSendChunk = { [weak self] in
+            guard let self else {
+                return false
+            }
+            if case .scheduledMessages = self.presentationInterfaceState.subject {
+                return false
+            }
+            if self.presentationInterfaceState.slowmodeState != nil {
+                return false
+            }
+            if self.presentationInterfaceState.sendPaidMessageStars != nil {
+                return false
+            }
+            return true
+        }
+        controller.onChunk = { [weak self] message in
+            guard let self else {
+                return
+            }
+            var message = message
+            // Only the first chunk answers the reply — after that the subject is
+            // cleared, so the rest of the take goes out as plain messages.
+            if let replyMessageSubject = self.presentationInterfaceState.interfaceState.replyMessageSubject {
+                message = message.withUpdatedReplyToMessageId(replyMessageSubject.subjectModel)
+                self.updateChatPresentationInterfaceState(animated: false, interactive: false, {
+                    $0.updatedInterfaceState { $0.withUpdatedReplyMessageSubject(nil) }
+                })
+            }
+            let silentPosting = self.presentationInterfaceState.interfaceState.silentPosting
+            self.sendMessages(self.transformEnqueueMessages([message], silentPosting: silentPosting))
+        }
+
+        // IAyuGram: whether this recording is allowed to leave the chat, and what happens
+        // when it does. The screen only asks and requests — the handover has to be done
+        // here, because clearing our own recorder state is half of it.
+        controller.iAyuCanMinimize = { [weak self] in
+            return self?.iAyuCanHandOffVideoRecording ?? false
+        }
+        controller.iAyuOnMinimize = { [weak self] in
+            self?.iAyuHandOffVideoRecording()
+        }
+    }
+
     func dismissMediaRecorder(_ action: ChatFinishMediaRecordingAction) {
         var updatedAction = action
         var isScheduledMessages = false

@@ -53,6 +53,10 @@ public final class IAyuRecordingHeaderPanelComponent: Component {
 
     public final class View: UIView {
         private let micIcon = UIImageView()
+        /// Where a round video puts its live preview circle. The circle is the camera
+        /// screen's own view, borrowed while it is minimized, so this only positions and
+        /// scales it — it is handed straight back when the chat reclaims the recording.
+        private let previewContainer = UIView()
         private let durationLabel = UILabel()
         private let titleLabel = UILabel()
         private let discardButton = UIButton(type: .system)
@@ -75,7 +79,11 @@ public final class IAyuRecordingHeaderPanelComponent: Component {
             self.discardButton.addTarget(self, action: #selector(self.discardPressed), for: .touchUpInside)
             self.sendButton.addTarget(self, action: #selector(self.sendPressed), for: .touchUpInside)
 
+            self.previewContainer.clipsToBounds = true
+            self.previewContainer.isUserInteractionEnabled = false
+
             self.addSubview(self.separatorLine)
+            self.addSubview(self.previewContainer)
             self.addSubview(self.micIcon)
             self.addSubview(self.durationLabel)
             self.addSubview(self.titleLabel)
@@ -97,11 +105,19 @@ public final class IAyuRecordingHeaderPanelComponent: Component {
         }
 
         @objc private func discardPressed() {
-            IAyuGlobalRecordingManager.shared.stop(reason: .cancel)
+            if self.component?.data.kind == .video {
+                IAyuGlobalRecordingManager.shared.stopVideo(reason: .cancel)
+            } else {
+                IAyuGlobalRecordingManager.shared.stop(reason: .cancel)
+            }
         }
 
         @objc private func sendPressed() {
-            IAyuGlobalRecordingManager.shared.stop(reason: .send(viewOnce: false))
+            if self.component?.data.kind == .video {
+                IAyuGlobalRecordingManager.shared.stopVideo(reason: .send(viewOnce: false))
+            } else {
+                IAyuGlobalRecordingManager.shared.stop(reason: .send(viewOnce: false))
+            }
         }
 
         @objc private func panelTapped() {
@@ -139,11 +155,13 @@ public final class IAyuRecordingHeaderPanelComponent: Component {
             self.discardButton.setTitle(IAyuStrings.text(.recordingPanelCancel), for: .normal)
             self.sendButton.setTitle(IAyuStrings.text(.recordingPanelSend), for: .normal)
 
+            let isVideo = component.data.kind == .video
+            let kindTitle = IAyuStrings.text(isVideo ? .recordingPanelVideoTitle : .recordingPanelTitle)
             let peerTitle = component.data.target.peerTitle
             if peerTitle.isEmpty {
-                self.titleLabel.text = IAyuStrings.text(.recordingPanelTitle)
+                self.titleLabel.text = kindTitle
             } else {
-                self.titleLabel.text = "\(IAyuStrings.text(.recordingPanelTitle)) · \(peerTitle)"
+                self.titleLabel.text = "\(kindTitle) · \(peerTitle)"
             }
 
             // Resubscribe only when the recording itself changed: the signal is the live
@@ -152,7 +170,18 @@ public final class IAyuRecordingHeaderPanelComponent: Component {
                 self.recordingStateDisposable?.dispose()
                 self.currentDuration = 0.0
                 self.updateDurationText()
-                if let recorder = IAyuGlobalRecordingManager.shared.activeRecorder {
+                if isVideo {
+                    if let recorder = IAyuGlobalRecordingManager.shared.activeVideoRecorder {
+                        self.recordingStateDisposable = (recorder.iAyuRecordingDuration
+                        |> deliverOnMainQueue).start(next: { [weak self] duration in
+                            guard let self else {
+                                return
+                            }
+                            self.currentDuration = duration
+                            self.updateDurationText()
+                        })
+                    }
+                } else if let recorder = IAyuGlobalRecordingManager.shared.activeRecorder {
                     self.recordingStateDisposable = (recorder.recordingState
                     |> deliverOnMainQueue).start(next: { [weak self] recordingState in
                         guard let self else {
@@ -180,15 +209,47 @@ public final class IAyuRecordingHeaderPanelComponent: Component {
                 size: CGSize(width: size.width, height: UIScreenPixel)
             )
 
-            let iconSize = CGSize(width: 14.0, height: 18.0)
-            self.micIcon.frame = CGRect(
-                origin: CGPoint(x: sideInset, y: floorToScreenPixels((size.height - iconSize.height) / 2.0)),
-                size: iconSize
-            )
+            // Left slot: a red microphone for voice, the live camera circle for a round
+            // video. Both end at the same x, so nothing to the right of it shifts.
+            let leftSlotMaxX: CGFloat
+            if isVideo {
+                self.micIcon.isHidden = true
+                self.previewContainer.isHidden = false
+                let previewSide: CGFloat = 28.0
+                let previewFrame = CGRect(
+                    origin: CGPoint(x: sideInset, y: floorToScreenPixels((size.height - previewSide) / 2.0)),
+                    size: CGSize(width: previewSide, height: previewSide)
+                )
+                self.previewContainer.frame = previewFrame
+                self.previewContainer.layer.cornerRadius = previewSide / 2.0
+
+                if let previewView = IAyuGlobalRecordingManager.shared.activeVideoRecorder?.iAyuPreviewView {
+                    if previewView.superview !== self.previewContainer {
+                        self.previewContainer.addSubview(previewView)
+                    }
+                    // The circle keeps its full-size internal layout — the progress ring is
+                    // drawn against it — and is scaled as a whole, so nothing inside it has
+                    // to know it is being shown at thumbnail size.
+                    previewView.transform = .identity
+                    let naturalSide = max(previewView.bounds.width, 1.0)
+                    previewView.center = CGPoint(x: previewSide / 2.0, y: previewSide / 2.0)
+                    previewView.transform = CGAffineTransform(scaleX: previewSide / naturalSide, y: previewSide / naturalSide)
+                }
+                leftSlotMaxX = previewFrame.maxX
+            } else {
+                self.previewContainer.isHidden = true
+                self.micIcon.isHidden = false
+                let iconSize = CGSize(width: 14.0, height: 18.0)
+                self.micIcon.frame = CGRect(
+                    origin: CGPoint(x: sideInset, y: floorToScreenPixels((size.height - iconSize.height) / 2.0)),
+                    size: iconSize
+                )
+                leftSlotMaxX = self.micIcon.frame.maxX
+            }
 
             let durationSize = CGSize(width: 44.0, height: size.height)
             self.durationLabel.frame = CGRect(
-                origin: CGPoint(x: self.micIcon.frame.maxX + 6.0, y: 0.0),
+                origin: CGPoint(x: leftSlotMaxX + 6.0, y: 0.0),
                 size: durationSize
             )
 
