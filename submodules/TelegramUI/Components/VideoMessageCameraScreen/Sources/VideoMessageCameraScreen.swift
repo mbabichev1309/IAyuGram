@@ -1253,11 +1253,16 @@ public class VideoMessageCameraScreen: ViewController {
             let pinchGestureRecognizer = UIPinchGestureRecognizer(target: self, action: #selector(self.handlePinch(_:)))
             self.view.addGestureRecognizer(pinchGestureRecognizer)
 
-            // IAyuGram: drag the circle down to leave the chat with the recording. On the
-            // circle rather than the whole screen, so it cannot be confused with anything
-            // the surrounding controls do.
+            // IAyuGram: drag the circle down to leave the chat with the recording.
+            //
+            // On the node's own view, NOT on the circle: the component host — the whole
+            // button layer — is a sibling stacked above the circle and covers it, so a
+            // recognizer attached to the circle never sees the touch. An ancestor does. The
+            // gesture is then narrowed back down to touches that start inside the circle
+            // and head downward, in gestureRecognizerShouldBegin.
             let minimizePanRecognizer = UIPanGestureRecognizer(target: self, action: #selector(self.iAyuHandleMinimizePan(_:)))
-            self.previewContainerView.addGestureRecognizer(minimizePanRecognizer)
+            minimizePanRecognizer.delegate = self.wrappedGestureRecognizerDelegate
+            self.view.addGestureRecognizer(minimizePanRecognizer)
             self.iAyuMinimizePanRecognizer = minimizePanRecognizer
         }
 
@@ -1279,6 +1284,26 @@ public class VideoMessageCameraScreen: ViewController {
             // Below the component host, which is where it started: the buttons draw over
             // the circle, not under it.
             self.containerView.insertSubview(self.previewContainerView, at: 0)
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard gestureRecognizer === self.iAyuMinimizePanRecognizer else {
+                return true
+            }
+            guard let controller = self.controller, controller.iAyuMinimizeAvailable else {
+                return false
+            }
+            let location = gestureRecognizer.location(in: self.view)
+            guard self.previewContainerView.frame.contains(self.containerView.convert(location, from: self.view)) else {
+                return false
+            }
+            guard let panRecognizer = gestureRecognizer as? UIPanGestureRecognizer else {
+                return true
+            }
+            // Downward only, decided at the first movement — otherwise this would claim
+            // every horizontal drag over the circle as well.
+            let velocity = panRecognizer.velocity(in: self.view)
+            return velocity.y > 0.0 && abs(velocity.y) > abs(velocity.x)
         }
 
         @objc private func iAyuHandleMinimizePan(_ recognizer: UIPanGestureRecognizer) {

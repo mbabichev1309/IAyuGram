@@ -7760,11 +7760,10 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
-        // IAyuGram: take back a round video that was minimized out of this chat. Later than
-        // the voice reclaim in viewWillAppear on purpose — this one re-presents a screen on
-        // the root window, which has no business happening during a transition that may yet
-        // be cancelled.
-        self.iAyuReclaimVideoRecording()
+        // IAyuGram: offer ourselves as the chat that can expand a minimized round video —
+        // and honour a request that arrived while we were not on screen. Merely arriving
+        // does NOT expand it: that is the user walking back in, not asking for the camera.
+        self.iAyuUpdateVideoRecordingHost(isVisible: true)
         
         self.didAppear = true
         
@@ -8241,6 +8240,9 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     
     override public func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        
+        // IAyuGram: no longer the chat that can expand a minimized round video.
+        self.iAyuUpdateVideoRecordingHost(isVisible: false)
         
         // IAyuGram: we are really gone (a cancelled swipe never reaches here), so the
         // recording can now change hands and keep running.
