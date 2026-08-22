@@ -287,9 +287,7 @@ public final class IAyuStrings {
         .recordingPanelVideoTitle: "Recording round video",
         .recordingPanelCancel: "Discard",
         .recordingPanelSend: "Send",
-        .hubRoundVideoInfo: "The camera screen covers the chat, so a round video normally has nowhere to go. With the second switch on, a locked recording can be minimized — the button in the bottom row, or a swipe down on the circle — and it carries on in a panel at the top of the screen, live preview and all, until you send it or throw it away. Coming back to the chat brings it back full size.
-
-Telegram stops a round video at one minute. With this on, the finished minute is sent on its own and recording carries straight on, so a long take arrives as a series of messages. There is a short gap at each seam, and the recording still stops for good after ten of them.",
+        .hubRoundVideoInfo: "The camera screen covers the chat, so a round video normally has nowhere to go. With the second switch on, a locked recording can be minimized — the button in the bottom row, or a swipe down on the circle — and it carries on in a panel at the top of the screen, live preview and all, until you send it or throw it away. Coming back to the chat brings it back full size.\n\nTelegram stops a round video at one minute. With this on, the finished minute is sent on its own and recording carries straight on, so a long take arrives as a series of messages. There is a short gap at each seam, and the recording still stops for good after ten of them.",
 
         .listenedToday: "Listened at {time}",
         .listenedOnDate: "Listened {date} at {time}",
