@@ -1286,9 +1286,9 @@ public class VideoMessageCameraScreen: ViewController {
             self.containerView.insertSubview(self.previewContainerView, at: 0)
         }
 
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard gestureRecognizer === self.iAyuMinimizePanRecognizer else {
-                return true
+                return super.gestureRecognizerShouldBegin(gestureRecognizer)
             }
             guard let controller = self.controller, controller.iAyuMinimizeAvailable else {
                 return false
