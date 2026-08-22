@@ -1454,12 +1454,14 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                 footerPanels.append(panel)
             }
         }
-        // IAyuGram: the recording panel, except in the chat the recording belongs to —
-        // there the input panel already shows it, and two pults for one recording is one
-        // too many.
+        // IAyuGram: the recording panel. A minimized VOICE recording is hidden in the chat
+        // it belongs to — being there reclaims it, so the input panel is already showing it
+        // and two pults for one recording is one too many. A minimized ROUND VIDEO is not
+        // reclaimed by walking back in, and the panel is the only way to expand it again,
+        // so there it stays visible everywhere.
         var iAyuRecordingPanel: IAyuGlobalRecordingState?
         if !hideTopPanels, self.chatPresentationInterfaceState.search == nil, let recording = self.controller?.globalControlPanelsContextState?.iAyuRecording {
-            if let peerId = self.chatPresentationInterfaceState.chatLocation.peerId, recording.target.matches(peerId: peerId, threadId: self.chatPresentationInterfaceState.chatLocation.threadId) {
+            if recording.kind == .voice, let peerId = self.chatPresentationInterfaceState.chatLocation.peerId, recording.target.matches(peerId: peerId, threadId: self.chatPresentationInterfaceState.chatLocation.threadId) {
             } else {
                 iAyuRecordingPanel = recording
             }

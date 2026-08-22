@@ -85,6 +85,13 @@ extension ChatControllerImpl {
         self.recorderFeedback = nil
         self.audioRecorder.set(.single(nil))
         self.lockOrientation = false
+
+        // The mic button's pulsing decoration is not drawn in the input panel — the legacy
+        // button presents it in the keyboard window (or in a controller of its own), and it
+        // is taken down only when the button's own recording ends. Walking away is not an
+        // ending it knows about, so the blobs outlive the chat and end up parked in the top
+        // left of whatever comes next. Ending the button's interaction takes them with it.
+        self.chatDisplayNode.textInputPanelNode?.micButton?.cancelRecording()
     }
 
     /// Take back a recording that is still running for this chat, or pick up the audio of
@@ -289,15 +296,66 @@ extension ChatControllerImpl {
         // The subscription discards whatever recorder it is replacing. This one is not
         // being replaced, it is being handed over, so it has to be exempted by name.
         self.iAyuHandedOffVideoRecorder = controller
-        let _ = controller.iAyuDetachForMinimize()
+        let previewView = controller.iAyuDetachForMinimize()
         self.recorderFeedback = nil
         self.videoRecorder.set(.single(nil))
+
+        // The circle carries on in the same draggable overlay a round MESSAGE uses when you
+        // scroll away from it — dragging, edge snapping and stacking all come from there.
+        // Tapping it expands, exactly like tapping the panel.
+        let sharedContext = self.context.sharedContext
+        let accountId = self.context.account.id
+        if let overlayController = sharedContext.mediaManager.overlayMediaManager.controller {
+            // Nothing of the chat is captured here: the circle outlives it, and holding a
+            // popped chat controller alive through an overlay would be its own bug.
+            let overlayNode = IAyuRoundRecordingOverlayNode(previewView: previewView, tapped: {
+                if !manager.requestVideoExpand() {
+                    // No chat of ours on screen. Go there; the request is honoured on the
+                    // way in.
+                    sharedContext.navigateToChat(accountId: accountId, peerId: peerId, messageId: nil)
+                }
+            })
+            overlayController.addNode(overlayNode, customTransition: false)
+            overlayNode.refreshPreviewLayout()
+            manager.setVideoOverlay(node: overlayNode, remove: { [weak overlayController] node in
+                overlayController?.removeNode(node, customTransition: false)
+            })
+        }
     }
 
-    /// Take a minimized round video back. Called when the chat appears, so returning to it
-    /// is all the user has to do — and if the take ended while we were away, it lands in
-    /// the preview state instead, which is where the in-chat flow would have put it.
-    func iAyuReclaimVideoRecording() {
+    /// Register as the chat that can put a minimized round video back on the full screen,
+    /// and honour a request that came in while we were not here. Deliberately NOT an
+    /// automatic expand: walking back into the chat is not the same as asking for the camera
+    /// screen again, and having it slam back a second after you arrive is exactly what that
+    /// felt like.
+    func iAyuUpdateVideoRecordingHost(isVisible: Bool) {
+        let manager = IAyuGlobalRecordingManager.shared
+        guard isVisible else {
+            if manager.videoHost === self {
+                manager.videoHost = nil
+            }
+            return
+        }
+        guard self.iAyuGlobalRoundRecordingEnabled, let peerId = self.chatLocation.peerId else {
+            return
+        }
+        guard let target = manager.activeTarget, target.matches(peerId: peerId, threadId: self.chatLocation.threadId), manager.activeVideoRecorder != nil else {
+            if manager.videoHost === self {
+                manager.videoHost = nil
+            }
+            return
+        }
+        manager.videoHost = self
+        if manager.consumePendingVideoExpand() {
+            self.iAyuExpandVideoRecording()
+        }
+    }
+
+    /// Take a minimized round video back onto the full screen. Only ever reached by asking
+    /// for it — tapping the panel or the circle — never by merely arriving in the chat. If
+    /// the take ended meanwhile it lands in the preview state instead, which is where the
+    /// in-chat flow would have put it.
+    public func iAyuExpandVideoRecording() {
         guard self.iAyuGlobalRoundRecordingEnabled, let peerId = self.chatLocation.peerId else {
             return
         }
@@ -328,4 +386,9 @@ extension ChatControllerImpl {
             }
         }
     }
+}
+
+// The manager cannot expand a recording on its own — putting the camera screen back means
+// re-teaching it everything the chat knows — so it asks the chat, through this.
+extension ChatControllerImpl: IAyuGlobalVideoRecordingHost {
 }

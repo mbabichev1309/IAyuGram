@@ -47,6 +47,16 @@ public protocol IAyuGlobalVideoRecorder: AnyObject {
     func iAyuStopRecordingKeepingTake()
 }
 
+/// The chat a minimized round video came from, when it happens to be on screen.
+///
+/// Expanding is not something the manager can do by itself: putting the camera screen back
+/// on the window means re-teaching it everything the chat knows. So the chat registers
+/// itself while it is visible, and the manager asks it. When no chat is registered the
+/// request is remembered instead, and the next matching chat to appear honours it.
+public protocol IAyuGlobalVideoRecordingHost: AnyObject {
+    func iAyuExpandVideoRecording()
+}
+
 /// Everything the send needs to know about where the recording is going, snapshotted when
 /// it starts. It has to be a snapshot: the chat controller that knew all this may be gone
 /// by the time the user hits send, and re-reading it later would read some other chat.
@@ -166,6 +176,14 @@ public final class IAyuGlobalRecordingManager {
 
     private var session: Session?
     private var videoSession: VideoSession?
+    /// The draggable circle the minimized recording is shown in, and how to take it down.
+    /// Held as the base class because the node itself lives in TelegramUI.
+    private var videoOverlayNode: OverlayMediaItemNode?
+    private var removeVideoOverlay: ((OverlayMediaItemNode) -> Void)?
+    /// Set while a chat that owns the minimized recording is on screen.
+    public weak var videoHost: IAyuGlobalVideoRecordingHost?
+    /// An expand asked for while no such chat was on screen. The next one to appear takes it.
+    public private(set) var pendingVideoExpand = false
     private var nextVersion: Int = 0
     private let statePromise = Promise<IAyuGlobalRecordingState?>(nil)
     /// Recorded audio whose chat was not on screen when the recording ended. The chat
@@ -306,6 +324,10 @@ public final class IAyuGlobalRecordingManager {
             return nil
         }
         self.videoSession = nil
+        self.pendingVideoExpand = false
+        // The camera screen takes its preview back as part of restoring itself, so by the
+        // time this runs the circle is already empty.
+        self.takeDownVideoOverlay()
         self.pushState()
         return (session.controller, session.isFinished)
     }
@@ -330,7 +352,52 @@ public final class IAyuGlobalRecordingManager {
             return
         }
         self.videoSession = nil
+        self.takeDownVideoOverlay()
         self.pushState()
+    }
+
+    /// Hand the circle to the manager, so it comes down at exactly the same moments the
+    /// session does — sent, discarded, or expanded back into its chat.
+    public func setVideoOverlay(node: OverlayMediaItemNode, remove: @escaping (OverlayMediaItemNode) -> Void) {
+        assert(Queue.mainQueue().isCurrent())
+        self.takeDownVideoOverlay()
+        self.videoOverlayNode = node
+        self.removeVideoOverlay = remove
+    }
+
+    private func takeDownVideoOverlay() {
+        if let node = self.videoOverlayNode {
+            self.videoOverlayNode = nil
+            self.removeVideoOverlay?(node)
+            self.removeVideoOverlay = nil
+        }
+    }
+
+    /// Put the recording back on the full screen. Returns false when there was no chat on
+    /// screen to do it — the caller then has to navigate there, and the request is honoured
+    /// when it appears.
+    @discardableResult
+    public func requestVideoExpand() -> Bool {
+        assert(Queue.mainQueue().isCurrent())
+        guard self.videoSession != nil else {
+            return true
+        }
+        if let host = self.videoHost {
+            self.pendingVideoExpand = false
+            host.iAyuExpandVideoRecording()
+            return true
+        }
+        self.pendingVideoExpand = true
+        return false
+    }
+
+    public func consumePendingVideoExpand() -> Bool {
+        assert(Queue.mainQueue().isCurrent())
+        guard self.pendingVideoExpand else {
+            return false
+        }
+        self.pendingVideoExpand = false
+        return true
     }
 
     public func stopVideo(reason: IAyuGlobalRecordingStopReason) {
@@ -345,6 +412,7 @@ public final class IAyuGlobalRecordingManager {
             session.controller.iAyuSendFromPanel()
         case .cancel:
             self.videoSession = nil
+            self.takeDownVideoOverlay()
             self.pushState()
             session.controller.iAyuCancelFromPanel()
         case .preempted, .accountSwitched, .applicationBackgrounded:
@@ -381,6 +449,7 @@ public final class IAyuGlobalRecordingManager {
 
         if !isChunk {
             self.videoSession = nil
+            self.takeDownVideoOverlay()
             self.pushState()
         }
     }
