@@ -766,12 +766,13 @@ private final class IAyuHubArguments {
     let toggleHideBotPanel: (Bool) -> Void
     let explainBotPanelLock: () -> Void
     let toggleInfiniteRoundVideos: (Bool) -> Void
+    let toggleGlobalRoundRecording: (Bool) -> Void
     let toggleGlobalVoiceRecording: (Bool) -> Void
     let openAppearance: () -> Void
     let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, pickMassDeleteGlobalThreshold: @escaping () -> Void, togglePinnedOverBot: @escaping (Bool) -> Void, toggleHideBotPanel: @escaping (Bool) -> Void, explainBotPanelLock: @escaping () -> Void, toggleInfiniteRoundVideos: @escaping (Bool) -> Void, toggleGlobalVoiceRecording: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, pickMassDeleteGlobalThreshold: @escaping () -> Void, togglePinnedOverBot: @escaping (Bool) -> Void, toggleHideBotPanel: @escaping (Bool) -> Void, explainBotPanelLock: @escaping () -> Void, toggleInfiniteRoundVideos: @escaping (Bool) -> Void, toggleGlobalRoundRecording: @escaping (Bool) -> Void, toggleGlobalVoiceRecording: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleSignal = toggleSignal
         self.toggleLock = toggleLock
         self.toggleInvisibleSend = toggleInvisibleSend
@@ -783,6 +784,7 @@ private final class IAyuHubArguments {
         self.toggleHideBotPanel = toggleHideBotPanel
         self.explainBotPanelLock = explainBotPanelLock
         self.toggleInfiniteRoundVideos = toggleInfiniteRoundVideos
+        self.toggleGlobalRoundRecording = toggleGlobalRoundRecording
         self.toggleGlobalVoiceRecording = toggleGlobalVoiceRecording
         self.openAppearance = openAppearance
         self.openLocalization = openLocalization
@@ -886,6 +888,7 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case botPanelInfo(String)
     case roundVideoHeader(String)
     case infiniteRoundVideos(String, Bool)
+    case globalRoundRecording(String, Bool)
     case roundVideoInfo(String)
     case voiceRecordingHeader(String)
     case globalVoiceRecording(String, Bool)
@@ -908,7 +911,7 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return IAyuHubSection.massDelete.rawValue
         case .botPanelHeader, .botPanelPinnedFirst, .botPanelHide, .botPanelInfo:
             return IAyuHubSection.botPanel.rawValue
-        case .roundVideoHeader, .infiniteRoundVideos, .roundVideoInfo:
+        case .roundVideoHeader, .infiniteRoundVideos, .globalRoundRecording, .roundVideoInfo:
             return IAyuHubSection.roundVideo.rawValue
         case .voiceRecordingHeader, .globalVoiceRecording, .voiceRecordingInfo:
             return IAyuHubSection.voiceRecording.rawValue
@@ -947,7 +950,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .botPanelInfo: return 73
         case .roundVideoHeader: return 80
         case .infiniteRoundVideos: return 81
-        case .roundVideoInfo: return 82
+        case .globalRoundRecording: return 82
+        case .roundVideoInfo: return 83
         case .voiceRecordingHeader: return 85
         case .globalVoiceRecording: return 86
         case .voiceRecordingInfo: return 87
@@ -1008,6 +1012,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let (.roundVideoHeader(a), .roundVideoHeader(b)):
             return a == b
         case let (.infiniteRoundVideos(a1, a2), .infiniteRoundVideos(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.globalRoundRecording(a1, a2), .globalRoundRecording(b1, b2)):
             return a1 == b1 && a2 == b2
         case let (.roundVideoInfo(a), .roundVideoInfo(b)):
             return a == b
@@ -1115,6 +1121,10 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleInfiniteRoundVideos(newValue)
             })
+        case let .globalRoundRecording(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleGlobalRoundRecording(newValue)
+            })
         case let .roundVideoInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .voiceRecordingHeader(text):
@@ -1154,6 +1164,7 @@ private struct IAyuHubState: Equatable {
     var pinnedOverBot: Bool
     var hideBotPanel: Bool
     var infiniteRoundVideos: Bool
+    var globalRoundRecording: Bool
     var globalVoiceRecording: Bool
 }
 
@@ -1169,6 +1180,7 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         pinnedOverBot: SGSimpleSettings.shared.iaPinnedOverBusinessBot,
         hideBotPanel: SGSimpleSettings.shared.iaHideBusinessBotPanel,
         infiniteRoundVideos: SGSimpleSettings.shared.iaInfiniteRoundVideos,
+        globalRoundRecording: SGSimpleSettings.shared.iaGlobalRoundRecording,
         globalVoiceRecording: SGSimpleSettings.shared.iaGlobalVoiceRecording
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -1323,6 +1335,13 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             state.infiniteRoundVideos = value
             return state
         }
+    }, toggleGlobalRoundRecording: { value in
+        SGSimpleSettings.shared.iaGlobalRoundRecording = value
+        updateState { state in
+            var state = state
+            state.globalRoundRecording = value
+            return state
+        }
     }, toggleGlobalVoiceRecording: { value in
         SGSimpleSettings.shared.iaGlobalVoiceRecording = value
         updateState { state in
@@ -1366,6 +1385,7 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.botPanelInfo(IAyuStrings.text(.hubBotPanelInfo)))
         entries.append(.roundVideoHeader(IAyuStrings.text(.hubRoundVideoHeader)))
         entries.append(.infiniteRoundVideos(IAyuStrings.text(.hubRoundVideoInfinite), state.infiniteRoundVideos))
+        entries.append(.globalRoundRecording(IAyuStrings.text(.hubRoundVideoGlobal), state.globalRoundRecording))
         entries.append(.roundVideoInfo(IAyuStrings.text(.hubRoundVideoInfo)))
         entries.append(.voiceRecordingHeader(IAyuStrings.text(.hubVoiceRecordingHeader)))
         entries.append(.globalVoiceRecording(IAyuStrings.text(.hubVoiceRecordingGlobal), state.globalVoiceRecording))

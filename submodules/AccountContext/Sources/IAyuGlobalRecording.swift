@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import SwiftSignalKit
 import Postbox
 import TelegramCore
@@ -16,6 +17,35 @@ import TelegramCore
 // Deliberately ONE slot. The audio session is a stack with a single active holder
 // (ManagedAudioSession.push), so a second recording does not coexist with the first —
 // it steals the microphone and the first dies silently.
+
+/// Voice and round video share this one slot — there is one microphone, and the audio
+/// session is a stack with a single active holder — but they share almost nothing else,
+/// so everything that acts on a session branches on this.
+public enum IAyuGlobalRecordingKind {
+    case voice
+    case video
+}
+
+/// The round-video camera screen, seen from here.
+///
+/// It lives in TelegramUI/Components, which AccountContext must not depend on, so the
+/// manager holds it through this instead of by its own type. Unlike the voice recorder,
+/// this object is a whole ViewController that knows how to build its own message — so the
+/// manager never touches the video itself, it only decides when and where.
+public protocol IAyuGlobalVideoRecorder: AnyObject {
+    /// The live preview circle, lifted out of the camera screen and put into the panel.
+    /// The panel scales it down; its internal layout stays at full size.
+    var iAyuPreviewView: UIView { get }
+    var iAyuRecordingDuration: Signal<TimeInterval, NoError> { get }
+    /// True once the take has ended — the one-minute cap, or an interruption — and only a
+    /// finished recording is left to send or throw away.
+    var iAyuIsFinished: Bool { get }
+    func iAyuSendFromPanel()
+    func iAyuCancelFromPanel()
+    /// End the take without discarding it. The camera stops; what was filmed is kept and
+    /// becomes the chat's preview when it is next opened.
+    func iAyuStopRecordingKeepingTake()
+}
 
 /// Everything the send needs to know about where the recording is going, snapshotted when
 /// it starts. It has to be a snapshot: the chat controller that knew all this may be gone
@@ -70,13 +100,19 @@ public enum IAyuGlobalRecordingStopReason {
 /// What the panel renders. `version` makes equality cheap the way MediaPlayback does it:
 /// the panel only needs to know that something changed, not what.
 public final class IAyuGlobalRecordingState: Equatable {
+    public let kind: IAyuGlobalRecordingKind
     public let target: IAyuGlobalRecordingTarget
     public let startedAt: Double
+    /// A video take that has ended but has not been sent yet. The panel keeps its buttons
+    /// and stops counting.
+    public let isFinished: Bool
     public let version: Int
 
-    init(target: IAyuGlobalRecordingTarget, startedAt: Double, version: Int) {
+    init(kind: IAyuGlobalRecordingKind, target: IAyuGlobalRecordingTarget, startedAt: Double, isFinished: Bool, version: Int) {
+        self.kind = kind
         self.target = target
         self.startedAt = startedAt
+        self.isFinished = isFinished
         self.version = version
     }
 
@@ -107,7 +143,29 @@ public final class IAyuGlobalRecordingManager {
         }
     }
 
+    /// The round-video counterpart of Session. It is much thinner because the camera
+    /// screen owns the recording, the results and the message building; all that is kept
+    /// here is where it is going and whether it is still running.
+    private final class VideoSession {
+        let controller: IAyuGlobalVideoRecorder
+        let target: IAyuGlobalRecordingTarget
+        let account: Account
+        let startedAt: Double
+        var isFinished: Bool = false
+        /// A round video past the one-minute cap goes out as a series of messages, and
+        /// only the first of them answers the reply the chat was holding.
+        var didUseReply: Bool = false
+
+        init(controller: IAyuGlobalVideoRecorder, target: IAyuGlobalRecordingTarget, account: Account, startedAt: Double) {
+            self.controller = controller
+            self.target = target
+            self.account = account
+            self.startedAt = startedAt
+        }
+    }
+
     private var session: Session?
+    private var videoSession: VideoSession?
     private var nextVersion: Int = 0
     private let statePromise = Promise<IAyuGlobalRecordingState?>(nil)
     /// Recorded audio whose chat was not on screen when the recording ended. The chat
@@ -132,13 +190,18 @@ public final class IAyuGlobalRecordingManager {
     }
 
     public var activeTarget: IAyuGlobalRecordingTarget? {
-        return self.session?.target
+        return self.session?.target ?? self.videoSession?.target
+    }
+
+    /// The live camera screen, so the panel can mount its preview and drive its buttons.
+    public var activeVideoRecorder: IAyuGlobalVideoRecorder? {
+        return self.videoSession?.controller
     }
 
     /// True while a recording is held here — i.e. one is running outside its chat. Used
     /// for the single-slot rule: no second recording may start anywhere.
     public var isRecording: Bool {
-        return self.session != nil
+        return self.session != nil || self.videoSession != nil
     }
 
     // MARK: - Ownership handover
@@ -159,6 +222,9 @@ public final class IAyuGlobalRecordingManager {
             // starts — but if it does, the older one is the one already recorded, so it
             // is kept as a draft rather than dropped.
             self.stop(reason: .preempted)
+        }
+        if self.videoSession != nil {
+            self.stopVideo(reason: .preempted)
         }
 
         let session = Session(
@@ -197,6 +263,126 @@ public final class IAyuGlobalRecordingManager {
         self.session = nil
         self.pushState()
         return session.recorder
+    }
+
+    // MARK: - Round video
+
+    /// Take ownership of a minimized round-video recording. The camera screen is already
+    /// dismissed from the window by the time this runs; what it needs from here on is a
+    /// place to live and somewhere to send to.
+    public func adoptVideo(
+        controller: IAyuGlobalVideoRecorder,
+        target: IAyuGlobalRecordingTarget,
+        account: Account
+    ) {
+        assert(Queue.mainQueue().isCurrent())
+        if let existing = self.videoSession {
+            if existing.controller === controller {
+                return
+            }
+            self.stopVideo(reason: .preempted)
+        }
+        if self.session != nil {
+            // One microphone. Should be unreachable — the single-slot rule is checked
+            // before either recording starts — but the older take is the one that already
+            // has audio in it, so it is kept rather than dropped.
+            self.stop(reason: .preempted)
+        }
+
+        self.videoSession = VideoSession(
+            controller: controller,
+            target: target,
+            account: account,
+            startedAt: CFAbsoluteTimeGetCurrent()
+        )
+        self.pushState()
+    }
+
+    /// Hand the camera screen back to a chat that has come into view. Returns nil when the
+    /// recording belongs to some other chat, which must not take it.
+    public func reclaimVideo(peerId: PeerId, threadId: Int64?) -> (controller: IAyuGlobalVideoRecorder, isFinished: Bool)? {
+        assert(Queue.mainQueue().isCurrent())
+        guard let session = self.videoSession, session.target.matches(peerId: peerId, threadId: threadId) else {
+            return nil
+        }
+        self.videoSession = nil
+        self.pushState()
+        return (session.controller, session.isFinished)
+    }
+
+    /// The take ended on its own — the one-minute cap with chunking off, or something took
+    /// the camera away. The session stays: what was filmed is still there to send, and the
+    /// chat turns it into a preview when it is next opened.
+    public func videoRecordingDidFinish() {
+        assert(Queue.mainQueue().isCurrent())
+        guard let session = self.videoSession, !session.isFinished else {
+            return
+        }
+        session.isFinished = true
+        self.pushState()
+    }
+
+    /// The camera screen is done with itself — it sent, or it was discarded. Only the slot
+    /// has to be released; the controller tears itself down.
+    public func videoSessionEnded(controller: IAyuGlobalVideoRecorder) {
+        assert(Queue.mainQueue().isCurrent())
+        guard let session = self.videoSession, session.controller === controller else {
+            return
+        }
+        self.videoSession = nil
+        self.pushState()
+    }
+
+    public func stopVideo(reason: IAyuGlobalRecordingStopReason) {
+        assert(Queue.mainQueue().isCurrent())
+        guard let session = self.videoSession else {
+            return
+        }
+        switch reason {
+        case .send:
+            // The controller answers through its completion, which routes back into
+            // enqueueFromVideoSession and releases the slot there.
+            session.controller.iAyuSendFromPanel()
+        case .cancel:
+            self.videoSession = nil
+            self.pushState()
+            session.controller.iAyuCancelFromPanel()
+        case .preempted, .accountSwitched, .applicationBackgrounded:
+            session.controller.iAyuStopRecordingKeepingTake()
+            self.videoRecordingDidFinish()
+        }
+    }
+
+    /// Send a message the camera screen built into the chat the recording started in.
+    /// `isChunk` is a long take being cut at the cap: the camera keeps running, so the slot
+    /// must survive it.
+    public func enqueueFromVideoSession(_ message: EnqueueMessage, isChunk: Bool) {
+        assert(Queue.mainQueue().isCurrent())
+        guard let session = self.videoSession else {
+            return
+        }
+        var message = message
+        if !session.didUseReply, let replySubject = session.target.replySubject {
+            session.didUseReply = true
+            message = message.withUpdatedReplyToMessageId(replySubject)
+        }
+        if session.target.silentPosting {
+            message = message.withUpdatedAttributes { attributes in
+                var attributes = attributes
+                attributes.removeAll(where: { $0 is NotificationInfoMessageAttribute })
+                attributes.append(NotificationInfoMessageAttribute(flags: .muted))
+                return attributes
+            }
+        }
+        if let threadId = session.target.threadId {
+            message = message.withUpdatedThreadId(threadId)
+        }
+        let _ = enqueueMessages(account: session.account, peerId: session.target.peerId, messages: [message]).start()
+
+        if !isChunk {
+            self.videoSession = nil
+            self.pushState()
+        }
     }
 
     // MARK: - Ending a recording
@@ -322,10 +508,12 @@ public final class IAyuGlobalRecordingManager {
     /// it is stopped and kept as a draft in its own chat.
     public func handleAccountSwitch(to accountId: AccountRecordId) {
         assert(Queue.mainQueue().isCurrent())
-        guard let session = self.session, session.target.accountId != accountId else {
-            return
+        if let session = self.session, session.target.accountId != accountId {
+            self.stop(reason: .accountSwitched)
         }
-        self.stop(reason: .accountSwitched)
+        if let videoSession = self.videoSession, videoSession.target.accountId != accountId {
+            self.stopVideo(reason: .accountSwitched)
+        }
     }
 
     /// The app left the foreground. Recording in the background needs an audio-mode
@@ -333,19 +521,33 @@ public final class IAyuGlobalRecordingManager {
     /// but keeps it, which is the part upstream does not do.
     public func handleApplicationBackgrounded() {
         assert(Queue.mainQueue().isCurrent())
-        guard self.session != nil else {
-            return
+        if self.session != nil {
+            self.stop(reason: .applicationBackgrounded)
         }
-        self.stop(reason: .applicationBackgrounded)
+        if self.videoSession != nil {
+            // iOS suspends the capture session anyway; this only makes sure the take is
+            // closed rather than left half-written.
+            self.stopVideo(reason: .applicationBackgrounded)
+        }
     }
 
     private func pushState() {
+        let version = self.nextVersion
+        self.nextVersion += 1
         if let session = self.session {
-            let version = self.nextVersion
-            self.nextVersion += 1
             self.stateValue = IAyuGlobalRecordingState(
+                kind: .voice,
                 target: session.target,
                 startedAt: session.startedAt,
+                isFinished: false,
+                version: version
+            )
+        } else if let videoSession = self.videoSession {
+            self.stateValue = IAyuGlobalRecordingState(
+                kind: .video,
+                target: videoSession.target,
+                startedAt: videoSession.startedAt,
+                isFinished: videoSession.isFinished,
                 version: version
             )
         } else {

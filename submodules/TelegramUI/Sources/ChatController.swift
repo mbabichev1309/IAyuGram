@@ -526,6 +526,9 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     // (NavigationContainer.panGesture). So the handover waits for viewDidDisappear, the
     // only signal that we actually left, and this remembers that it is due.
     var iAyuPendingRecordingHandoff = false
+    /// IAyuGram: the round-video screen that was minimized rather than replaced. The
+    /// videoRecorder subscription discards whatever it supersedes, and this one must not be.
+    weak var iAyuHandedOffVideoRecorder: VideoMessageCameraScreen?
     
     var updateSlowmodeStatusDisposable = MetaDisposable()
     var updateSlowmodeStatusTimerValue: Int32?
@@ -6581,7 +6584,7 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                     }
                     strongSelf.updateDownButtonVisibility()
                     
-                    if let previousVideoRecorderValue = previousVideoRecorderValue {
+                    if let previousVideoRecorderValue = previousVideoRecorderValue, previousVideoRecorderValue !== strongSelf.iAyuHandedOffVideoRecorder {
                         previousVideoRecorderValue.discardVideo()
                     }
                 }
@@ -7756,6 +7759,12 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        
+        // IAyuGram: take back a round video that was minimized out of this chat. Later than
+        // the voice reclaim in viewWillAppear on purpose — this one re-presents a screen on
+        // the root window, which has no business happening during a transition that may yet
+        // be cancelled.
+        self.iAyuReclaimVideoRecording()
         
         self.didAppear = true
         

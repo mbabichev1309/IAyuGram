@@ -135,6 +135,7 @@ public enum IAyuStringKey: String, CaseIterable {
     // Round videos — recording past the 60s cap
     case hubRoundVideoHeader
     case hubRoundVideoInfinite
+    case hubRoundVideoGlobal
     case hubRoundVideoInfo
 
     // Voice recording that survives leaving the chat
@@ -143,6 +144,7 @@ public enum IAyuStringKey: String, CaseIterable {
     case hubVoiceRecordingInfo
     case recordingBusyElsewhere
     case recordingPanelTitle
+    case recordingPanelVideoTitle
     case recordingPanelCancel
     case recordingPanelSend
 
@@ -276,14 +278,18 @@ public final class IAyuStrings {
 
         .hubRoundVideoHeader: "ROUND VIDEOS",
         .hubRoundVideoInfinite: "Record past one minute",
+        .hubRoundVideoGlobal: "Keep recording outside the chat",
         .hubVoiceRecordingHeader: "VOICE RECORDING",
         .hubVoiceRecordingGlobal: "Keep recording outside the chat",
         .hubVoiceRecordingInfo: "Telegram cancels a voice message the moment you leave the chat. With this on, a locked recording keeps running: a panel appears at the top of the screen with the elapsed time, and from it you can send or discard. Only one recording at a time, and only in ordinary chats — scheduled messages, slowmode and paid chats keep the old behaviour. Leaving the app still ends the recording, but it is kept as a draft instead of being thrown away.",
         .recordingBusyElsewhere: "Already recording in {chat}",
         .recordingPanelTitle: "Recording voice message",
+        .recordingPanelVideoTitle: "Recording round video",
         .recordingPanelCancel: "Discard",
         .recordingPanelSend: "Send",
-        .hubRoundVideoInfo: "Telegram stops a round video at one minute. With this on, the finished minute is sent on its own and recording carries straight on, so a long take arrives as a series of messages. There is a short gap at each seam, and the recording still stops for good after ten of them.",
+        .hubRoundVideoInfo: "The camera screen covers the chat, so a round video normally has nowhere to go. With the second switch on, a locked recording can be minimized — the button in the bottom row, or a swipe down on the circle — and it carries on in a panel at the top of the screen, live preview and all, until you send it or throw it away. Coming back to the chat brings it back full size.
+
+Telegram stops a round video at one minute. With this on, the finished minute is sent on its own and recording carries straight on, so a long take arrives as a series of messages. There is a short gap at each seam, and the recording still stops for good after ten of them.",
 
         .listenedToday: "Listened at {time}",
         .listenedOnDate: "Listened {date} at {time}",
@@ -329,7 +335,8 @@ public final class IAyuStrings {
                             .massDeleteRestored, .massDeleteShowMore, .massDeleteMissing,
                             .massDeleteCollapseExisting, .massDeleteCollapseExistingConfirm,
                             .massDeleteCollapseExistingNothing, .massDeleteCollapseExistingDone]),
-        ("ROUND VIDEOS", [.hubRoundVideoHeader, .hubRoundVideoInfinite, .hubRoundVideoInfo]),
+        ("ROUND VIDEOS", [.hubRoundVideoHeader, .hubRoundVideoInfinite, .hubRoundVideoGlobal,
+                          .hubRoundVideoInfo, .recordingPanelVideoTitle]),
         ("VOICE RECORDING", [.hubVoiceRecordingHeader, .hubVoiceRecordingGlobal,
                              .hubVoiceRecordingInfo, .recordingBusyElsewhere,
                              .recordingPanelTitle, .recordingPanelCancel, .recordingPanelSend]),
@@ -440,12 +447,14 @@ public final class IAyuStrings {
         case .hubBotPanelLockedHint: return "Locked row hint"
         case .hubRoundVideoHeader: return "Section header"
         case .hubRoundVideoInfinite: return "Record past one minute"
+        case .hubRoundVideoGlobal: return "Keep recording outside the chat"
         case .hubRoundVideoInfo: return "Section footnote"
         case .hubVoiceRecordingHeader: return "Section header"
         case .hubVoiceRecordingGlobal: return "Keep recording outside the chat"
         case .hubVoiceRecordingInfo: return "Section footnote"
         case .recordingBusyElsewhere: return "Recording elsewhere warning"
         case .recordingPanelTitle: return "Recording panel title"
+        case .recordingPanelVideoTitle: return "Recording panel title (round video)"
         case .recordingPanelCancel: return "Recording panel: discard"
         case .recordingPanelSend: return "Recording panel: send"
         case .listenedToday: return "Today"

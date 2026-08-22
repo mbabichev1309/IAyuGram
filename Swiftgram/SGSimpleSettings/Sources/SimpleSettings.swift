@@ -127,6 +127,7 @@ public class SGSimpleSettings {
         case iaVoiceElapsedTime
         case iaInfiniteRoundVideos
         case iaGlobalVoiceRecording
+        case iaGlobalRoundRecording
         case bottomTabStyle
         case rememberLastFolder
         case lastAccountFolders
@@ -314,6 +315,7 @@ public class SGSimpleSettings {
         Keys.iaVoiceElapsedTime.rawValue: true,
         Keys.iaInfiniteRoundVideos.rawValue: false,
         Keys.iaGlobalVoiceRecording.rawValue: false,
+        Keys.iaGlobalRoundRecording.rawValue: false,
         Keys.rememberLastFolder.rawValue: false,
         Keys.bottomTabStyle.rawValue: BottomTabStyleValues.telegram.rawValue,
         Keys.lastAccountFolders.rawValue: [:],
@@ -546,6 +548,12 @@ public class SGSimpleSettings {
     // voice-discard alert), so a regression has to be one toggle away from gone.
     @UserDefault(key: Keys.iaGlobalVoiceRecording.rawValue)
     public var iaGlobalVoiceRecording: Bool
+
+    // The same for a round video, and a separate switch rather than one shared with voice:
+    // the camera screen is modal in a way the voice panel never was, so this one can be
+    // turned off on its own if minimizing it misbehaves.
+    @UserDefault(key: Keys.iaGlobalRoundRecording.rawValue)
+    public var iaGlobalRoundRecording: Bool
 
     @UserDefault(key: Keys.rememberLastFolder.rawValue)
     public var rememberLastFolder: Bool
