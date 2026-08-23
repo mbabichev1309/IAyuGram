@@ -36,6 +36,16 @@ open class OverlayMediaItemNode: ASDisplayNode {
     open var isMinimizeable: Bool {
         return false
     }
+
+    /// IAyuGram: whether flinging this node off the edge may throw it away.
+    ///
+    /// The container's fling handling has exactly two outcomes — tuck to the edge if the
+    /// node is minimizeable, otherwise dismiss it — and neither is right for something that
+    /// is still recording. Answering false here keeps the fling as an ordinary move to the
+    /// nearest corner.
+    open var isDismissable: Bool {
+        return true
+    }
     
     open var customTransition: Bool = false
     open var isRemoved: Bool = false
