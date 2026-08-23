@@ -27,9 +27,15 @@ final class IAyuRoundRecordingOverlayNode: OverlayMediaItemNode {
         return OverlayMediaItemNodeGroup(rawValue: 1)
     }
 
-    /// Deliberately not minimizeable. Hiding a running recording off the edge of the screen
-    /// is a good way to forget it is running.
+    /// Deliberately not minimizeable, and not dismissable either. Hiding a running
+    /// recording off the edge of the screen is a good way to forget it is running, and
+    /// throwing it away with a flick of the thumb is worse — the container does exactly
+    /// that to any node that says no to both, which is why isDismissable exists.
     override var isMinimizeable: Bool {
+        return false
+    }
+
+    override var isDismissable: Bool {
         return false
     }
 
@@ -100,10 +106,9 @@ final class IAyuRoundRecordingOverlayNode: OverlayMediaItemNode {
         self.previewView.transform = CGAffineTransform(scaleX: scale, y: scale)
     }
 
-    /// The overlay is not a pult — it has no buttons — so the close action the container
-    /// offers must not throw a recording away. Expanding is the only thing a gesture here
-    /// can mean.
+    /// Unreachable while isDismissable is false, and deliberately empty rather than
+    /// helpful: reading a dismissal as a request to expand is what turned a flick of the
+    /// thumb into the camera screen reappearing on the next visit to the chat.
     override func dismiss() {
-        self.tapped()
     }
 }

@@ -354,7 +354,13 @@ final class OverlayMediaControllerNode: ASDisplayNode, ASGestureRecognizerDelega
                     )) {
                         self.draggingNode = nil
                     } else {
-                        let (updatedLocation, shouldDismiss) = self.nodeLocationForPosition(layout: validLayout, position: CGPoint(x: previousFrame.midX, y: previousFrame.midY), velocity: recognizer.velocity(in: self.view), size: nodeSize, tempExtendedTopInset: draggingNode.tempExtendedTopInset)
+                        var (updatedLocation, shouldDismiss) = self.nodeLocationForPosition(layout: validLayout, position: CGPoint(x: previousFrame.midX, y: previousFrame.midY), velocity: recognizer.velocity(in: self.view), size: nodeSize, tempExtendedTopInset: draggingNode.tempExtendedTopInset)
+                        // IAyuGram: a node that refuses to be dismissed treats a fling as a
+                        // move. Without this the only two outcomes are tuck-to-edge and
+                        // throw-away, and a running recording wants neither.
+                        if shouldDismiss && !draggingNode.isDismissable {
+                            shouldDismiss = false
+                        }
                         
                         if shouldDismiss && draggingNode.isMinimizeable {
                             draggingNode.updateMinimizedEdge(updatedLocation.x.isZero ? .left : .right, adjusting: false)

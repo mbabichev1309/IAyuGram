@@ -87,11 +87,17 @@ extension ChatControllerImpl {
         self.lockOrientation = false
 
         // The mic button's pulsing decoration is not drawn in the input panel — the legacy
-        // button presents it in the keyboard window (or in a controller of its own), and it
-        // is taken down only when the button's own recording ends. Walking away is not an
-        // ending it knows about, so the blobs outlive the chat and end up parked in the top
-        // left of whatever comes next. Ending the button's interaction takes them with it.
-        self.chatDisplayNode.textInputPanelNode?.micButton?.cancelRecording()
+        // button presents it in a window of its own — and it is taken down only when the
+        // button's own recording ends. Walking away is not an ending it knows about, so the
+        // blobs outlive the chat and end up parked in the top left of whatever comes next.
+        //
+        // It has to be the legacy `dismiss`, which drops the presentation itself.
+        // `cancelRecording()` only flips isEnabled off and on, which cancels the touch
+        // tracking and leaves the presented views exactly where they were.
+        if let micButton = self.chatDisplayNode.textInputPanelNode?.micButton {
+            micButton.animateOut(false)
+            micButton.dismiss()
+        }
     }
 
     /// Take back a recording that is still running for this chat, or pick up the audio of
