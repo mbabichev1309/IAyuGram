@@ -39,7 +39,7 @@ private enum IAyuConnectionSection: Int32 {
 // CFBundleVersion and there is otherwise no way to tell from the phone which binary is
 // actually installed — which is exactly the ambiguity that stalled the capture-health
 // investigation.
-private let iAyuBuildMarker = "global-round-3"
+private let iAyuBuildMarker = "unread-and-blobs-1"
 
 // The reported figure, not a verdict: on a box with hundreds of free gigabytes the
 // warning will never fire by itself, so this is what tells "arriving, plenty of room"
@@ -292,7 +292,7 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
             }
         }
         entries.append(.diagHeader("DIAGNOSTICS"))
-        entries.append(.diagState("Build: \(iAyuBuildMarker)\nCapture health: \(iAyuCaptureStateDescription(IAyuCaptureHealth.shared.state))\nServer free space: \(iAyuStorageDescription())"))
+        entries.append(.diagState("Build: \(iAyuBuildMarker)\nCapture health: \(iAyuCaptureStateDescription(IAyuCaptureHealth.shared.state))\nServer free space: \(iAyuStorageDescription())\nPreserved unread cleared at launch: \(iAyuPreservedUnreadRepairReport())"))
         entries.append(.diagForce("Force the warning on"))
         entries.append(.diagForceStorage("Force the storage warning on"))
 

@@ -131,6 +131,9 @@ public func iAyuCollapseExistingDeletes(context: AccountContext, peerId: PeerId,
             // these resources by id, so nothing here may take the bytes away.
             transaction.deleteMessages(ids, forEachMedia: nil)
             let _ = transaction.addMessages([iAyuDeletedStoreMessage(item: plaque, accountPeerId: accountPeerId, transaction: transaction)], location: .Random)
+            // The summary is an incoming local message like any other preserved copy,
+            // so it lands in the chat's unread count unless it is read right here.
+            iAyuClearPreservedUnread(transaction: transaction, peerId: peerId)
         }
         |> deliverOnMainQueue).start(completed: {
             completion(archived.count)

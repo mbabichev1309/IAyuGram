@@ -8249,6 +8249,12 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         if self.iAyuPendingRecordingHandoff {
             self.iAyuPendingRecordingHandoff = false
             self.iAyuHandOffAudioRecording()
+        } else {
+            // The mic blobs live in a window of their own, not in the input panel, so a
+            // chat that leaves the screen without its recording ending can strand them
+            // there — whatever the reason it left. A button that is still recording is
+            // skipped, so this only ever removes a decoration nobody owns any more.
+            self.iAyuSweepOrphanedMicPresentations()
         }
     }
     

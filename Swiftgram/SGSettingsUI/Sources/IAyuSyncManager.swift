@@ -152,6 +152,10 @@ public final class IAyuSyncManager {
 
     public init(context: AccountContext) {
         self.context = context
+        // Independent of the companion server: earlier builds left preserved copies
+        // counted as unread, and those chats stay stuck whether or not capture is
+        // configured. See IAyuPreservedUnread.swift.
+        iAyuRepairPreservedUnread(context: context)
         self.start()
         // The iOS app is suspended in the background, killing the socket; reconnect
         // and catch up whenever it returns to the foreground.
