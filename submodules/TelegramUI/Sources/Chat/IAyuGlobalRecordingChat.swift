@@ -7,6 +7,7 @@ import ChatInterfaceState
 import ChatPresentationInterfaceState
 import AudioWaveform
 import VideoMessageCameraScreen
+import ChatTextInputMediaRecordingButton
 import SGSimpleSettings
 
 // MARK: IAyuGram — handing a voice recording to and from IAyuGlobalRecordingManager.
@@ -95,9 +96,33 @@ extension ChatControllerImpl {
         // `cancelRecording()` only flips isEnabled off and on, which cancels the touch
         // tracking and leaves the presented views exactly where they were.
         if let micButton = self.chatDisplayNode.textInputPanelNode?.micButton {
+            // The flag first: the button is about to be told, one last time, that it is
+            // still recording (see the sweep), and this is what stops that lie from
+            // protecting the decoration.
+            micButton.iAyuHandedOffRecording = true
+            micButton.audioRecorder = nil
             micButton.animateOut(false)
             micButton.dismiss()
         }
+        // ...and dismissing once here is not enough, which is why the sweep exists: the
+        // panel puts a presentation back up after this runs. Its layout defers
+        // `micButton.lock()` to the next runloop whenever the state says locked and the
+        // button has no recorder yet — which is exactly the state the hand-off leaves
+        // behind — and the button presents again on its way into the locked look. The
+        // second presentation is the one that used to survive.
+        self.iAyuSweepOrphanedMicPresentations()
+    }
+
+    /// Take down any mic-blob presentation that no longer belongs to a recording — now,
+    /// and again once the panel has finished reacting to whatever just happened.
+    ///
+    /// Safe to call from anywhere: a button that is actually recording is skipped, so the
+    /// only thing this can remove is a decoration nobody would otherwise take down.
+    func iAyuSweepOrphanedMicPresentations() {
+        iAyuDismissOrphanedMicRecordingPresentations()
+        Queue.mainQueue().after(0.5, {
+            iAyuDismissOrphanedMicRecordingPresentations()
+        })
     }
 
     /// Take back a recording that is still running for this chat, or pick up the audio of
@@ -115,6 +140,9 @@ extension ChatControllerImpl {
             // Keep it locked: it was handed over locked, and an unlocked panel here would
             // mean "release to send" with no finger on the button.
             self.lockMediaRecordingRequestId = self.beginMediaRecordingRequestId
+            // The button owns its decoration again, so the sweep must stop treating
+            // whatever it puts up as an orphan.
+            self.chatDisplayNode.textInputPanelNode?.micButton?.iAyuHandedOffRecording = false
             self.audioRecorder.set(.single(recorder))
             return
         }

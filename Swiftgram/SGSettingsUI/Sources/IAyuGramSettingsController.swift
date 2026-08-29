@@ -502,6 +502,12 @@ func iAyuInsertDeleted(context: AccountContext, items: [IAyuPendingDelete]) {
             }
         }
         let _ = transaction.addMessages(messages, location: .Random)
+        // A preserved copy is not new mail. Postbox has just counted every incoming
+        // one into the chat's unread badge; see IAyuPreservedUnread.swift for why that
+        // badge is then all but impossible to clear by reading the chat.
+        for peerId in Set(items.map { iAyuPeerId(fromServerChatId: $0.event.chatId) }) {
+            iAyuClearPreservedUnread(transaction: transaction, peerId: peerId)
+        }
     }).start()
 }
 

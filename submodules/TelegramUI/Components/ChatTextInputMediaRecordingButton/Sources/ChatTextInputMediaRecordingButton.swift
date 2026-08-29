@@ -100,6 +100,41 @@ private final class ChatTextInputMediaRecordingButtonPresenterControllerNode: Vi
     }
 }
 
+// MARK: IAyuGram — every live mic presentation, so an orphaned one can be found again.
+//
+// The pulsing blobs are not drawn in the input panel: the legacy button hands them to a
+// presenter which parks them in the keyboard window or in a controller of its own, i.e. in
+// something that outlives the chat. The presentation comes down when the button's own
+// recording ends — and an IAyuGram recording that walks out of the chat never ends there,
+// so the blobs stay behind and land in the top left of whatever comes next.
+//
+// Dismissing at the moment of the hand-off is not enough on its own, because the panel can
+// still put a presentation back up afterwards (the deferred `micButton.lock()` in
+// ChatTextInputPanelNode runs a runloop later, and the button re-presents on its way to the
+// locked state). So instead of trusting one call at one moment, every presenter registers
+// here and `iAyuDismissOrphanedMicRecordingPresentations()` takes down whatever no longer
+// belongs to an actual recording, whenever it is called.
+private let iAyuLiveMicPresenters = NSHashTable<AnyObject>.weakObjects()
+
+public func iAyuDismissOrphanedMicRecordingPresentations() {
+    for case let presenter as ChatTextInputMediaRecordingButtonPresenter in iAyuLiveMicPresenters.allObjects {
+        // A presenter whose button is gone, or whose button is not recording any more, is
+        // showing something nobody can take down. A button that IS recording is left
+        // alone, which is what keeps this safe to call from anywhere.
+        //
+        // `iAyuHandedOffRecording` is the third case and the one that matters most: after
+        // a hand-off the button can still be holding the recorder it gave away, because
+        // the panel lays out once more with the interface state it had before the
+        // recording changed hands — and then stops being laid out at all, so nothing ever
+        // clears it. Asking the button whether it is recording would believe that stale
+        // value; the flag does not.
+        if let button = presenter.button, button.iAyuHasRecorder, !button.iAyuHandedOffRecording {
+            continue
+        }
+        presenter.dismiss()
+    }
+}
+
 private final class ChatTextInputMediaRecordingButtonPresenter : NSObject, TGModernConversationInputMicButtonPresentation {
     private let statusBarHost: StatusBarHost?
     private let presentController: (ViewController) -> Void
@@ -112,9 +147,15 @@ private final class ChatTextInputMediaRecordingButtonPresenter : NSObject, TGMod
         self.statusBarHost = statusBarHost
         self.presentController = presentController
         self.container = ChatTextInputMediaRecordingButtonPresenterContainer()
+        
+        super.init()
+        
+        // IAyuGram: see iAyuLiveMicPresenters.
+        iAyuLiveMicPresenters.add(self)
     }
     
     deinit {
+        iAyuLiveMicPresenters.remove(self)
         self.container.removeFromSuperview()
         if let presentationController = self.presentationController {
             presentationController.presentingViewController?.dismiss(animated: false, completion: {})
@@ -132,6 +173,10 @@ private final class ChatTextInputMediaRecordingButtonPresenter : NSObject, TGMod
     }
     
     func present() {
+        // IAyuGram: a presenter that puts itself back up is live again, whatever took it
+        // down before.
+        iAyuLiveMicPresenters.add(self)
+        
         let windowIsVisible: (UIWindow) -> Bool = { window in
             return !window.frame.height.isZero
         }
@@ -168,6 +213,7 @@ private final class ChatTextInputMediaRecordingButtonPresenter : NSObject, TGMod
     }
     
     func dismiss() {
+        iAyuLiveMicPresenters.remove(self)
         self.timer?.invalidate()
         self.container.removeFromSuperview()
         if let presentationController = self.presentationController {
@@ -295,6 +341,16 @@ public final class ChatTextInputMediaRecordingButton: TGModernConversationInputM
             }
         }
     }
+    
+    // IAyuGram: read by the orphan sweep above, which lives outside this class.
+    fileprivate var iAyuHasRecorder: Bool {
+        return self.audioRecorder != nil || self.videoRecordingStatus != nil
+    }
+    
+    /// IAyuGram: this button's recording now belongs to the global manager, so whatever it
+    /// still has on screen is nobody's. Cleared when a recording starts here again, either
+    /// by touch or because the chat took one back.
+    public var iAyuHandedOffRecording: Bool = false
     
     private var hasRecorder: Bool = false {
         didSet {
@@ -483,6 +539,8 @@ public final class ChatTextInputMediaRecordingButton: TGModernConversationInputM
     }
     
     public func micButtonInteractionBegan() {
+        // IAyuGram: a new recording starts here, so this button owns its decoration again.
+        self.iAyuHandedOffRecording = false
         if self.fadeDisabled {
             self.recordingDisabled()
         } else {
