@@ -176,6 +176,12 @@ private func iAyuReplayMissing(context: AccountContext, events: [IAyuMessageEven
         }
         var missing: [IAyuMessageEvent] = []
         for (peerId, peerEvents) in byPeer {
+            // A collapsed mass deletion is not lost, it is filed away: one summary
+            // message in the chat, the contents in the batch store. Without this the
+            // chat looks empty of every message a batch swallowed, and a forced run
+            // would undo the collapsing the user asked for, a thousand bubbles at a
+            // time.
+            let archived = IAyuDeletedBatchStore.shared.archivedMessageIds(peerId: peerId.toInt64())
             var origins = Set<Int32>()
             // Copies made before DeletedMessageAttribute carried an origin id can only
             // be recognised by when the original was sent, which is the timestamp we
@@ -198,6 +204,9 @@ private func iAyuReplayMissing(context: AccountContext, events: [IAyuMessageEven
             for event in peerEvents {
                 let messageId = Int32(clamping: event.messageId)
                 if origins.contains(messageId) {
+                    continue
+                }
+                if archived.contains(event.messageId) {
                     continue
                 }
                 if let date = event.date, legacyTimestamps.contains(Int32(clamping: date)) {

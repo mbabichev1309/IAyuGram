@@ -135,6 +135,39 @@ final class IAyuDeletedBatchStore {
         return result
     }
 
+    // Every message id archived in a collapsed batch of this chat.
+    //
+    // A collapsed mass deletion leaves ONE summary message in the chat and keeps the
+    // rest here, so looking for a copy in Postbox says "missing" for every message a
+    // batch swallowed — thousands of them, all of which the user chose not to have in
+    // the chat. The forced re-sync asks this before concluding anything is lost.
+    func archivedMessageIds(peerId: Int64) -> Set<Int64> {
+        self.closeAll()
+        guard let directory = self.directory else {
+            return []
+        }
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        var result = Set<Int64>()
+        for name in names where name.hasSuffix(".jsonl") {
+            let raw = String(name.dropLast(6))
+            guard let key = IAyuDeletedBatchKey(rawValue: raw), key.peerId == peerId else {
+                continue
+            }
+            guard let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else {
+                continue
+            }
+            for line in data.split(separator: 0x0a) where !line.isEmpty {
+                if let event = try? decoder.decode(IAyuMessageEvent.self, from: line) {
+                    result.insert(event.messageId)
+                }
+            }
+        }
+        return result
+    }
+
     func exists(key: IAyuDeletedBatchKey) -> Bool {
         guard let url = self.fileURL(key) else {
             return false
