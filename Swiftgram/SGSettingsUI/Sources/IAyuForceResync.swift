@@ -225,7 +225,7 @@ private func iAyuReplayMaterialize(context: AccountContext, events: [IAyuMessage
     // Committed in chunks for the same reason the live path buffers: one transaction
     // per message recomputes the history view per message, and one transaction for a
     // thousand of them is a long stall at the end.
-    func flush(final: Bool) {
+    func flush(isFinal: Bool) {
         let batch = items
         items = []
         Queue.mainQueue().async {
@@ -236,7 +236,7 @@ private func iAyuReplayMaterialize(context: AccountContext, events: [IAyuMessage
                     IAyuMaterializedDeletesStore.shared.insert(peerId: peerId.toInt64(), messageId: item.event.messageId)
                 }
             }
-            if final {
+            if isFinal {
                 completion()
             }
         }
@@ -251,10 +251,10 @@ private func iAyuReplayMaterialize(context: AccountContext, events: [IAyuMessage
                     active -= 1
                     items.append(item)
                     if remaining.isEmpty, active == 0 {
-                        flush(final: true)
+                        flush(isFinal: true)
                     } else {
                         if items.count >= iAyuReplayFlushThreshold {
-                            flush(final: false)
+                            flush(isFinal: false)
                         }
                         pump()
                     }

@@ -212,9 +212,7 @@ public final class IAyuStrings {
         .chatExceptionsPreservationDisabled: "Don't restore deleted messages here",
         .chatExceptionsPreservationInfo: "Deleted messages in this chat are not brought back. They are still captured and stored on your companion server — this hides them, it does not stop recording them.",
 
-        .hubSendInfo: "Invisible send: your messages go out as scheduled ones about 12 seconds later, so sending does not show you online. Expect that delay on every message. Not part of Ghost mode — it stays as you set it.
-
-Read on interact: writing into a chat or reacting there also marks it read, so your reply does not sit under messages you supposedly never read. It briefly shows you online; with \"Don't go online\" on, an offline packet follows at once. Always on while invisible send is. It only matters while read receipts are hidden — with them on, Telegram already reads the chat for you.",
+        .hubSendInfo: "Invisible send: your messages go out as scheduled ones about 12 seconds later, so sending does not show you online. Expect that delay on every message. Not part of Ghost mode — it stays as you set it.\n\nRead on interact: writing into a chat or reacting there also marks it read, so your reply does not sit under messages you supposedly never read. It briefly shows you online; with \"Don't go online\" on, an offline packet follows at once. Always on while invisible send is. It only matters while read receipts are hidden — with them on, Telegram already reads the chat for you.",
         .hubGhostInfo: "Others won't see your read receipts, online status, typing, when you play their voice/video messages, or when you view their stories.",
         .hubMediaHeader: "PRESERVED MEDIA",
         .hubMediaCap: "Download limit",
