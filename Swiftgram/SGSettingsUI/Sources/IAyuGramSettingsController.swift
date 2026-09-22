@@ -770,6 +770,8 @@ private final class IAyuHubArguments {
     let pickMassDeleteGlobalThreshold: () -> Void
     let togglePinnedOverBot: (Bool) -> Void
     let toggleHideBotPanel: (Bool) -> Void
+    let toggleReadOnInteract: (Bool) -> Void
+    let explainReadOnInteractLock: () -> Void
     let explainBotPanelLock: () -> Void
     let toggleInfiniteRoundVideos: (Bool) -> Void
     let toggleGlobalRoundRecording: (Bool) -> Void
@@ -778,7 +780,7 @@ private final class IAyuHubArguments {
     let openLocalization: () -> Void
     let openConnection: () -> Void
 
-    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, pickMassDeleteGlobalThreshold: @escaping () -> Void, togglePinnedOverBot: @escaping (Bool) -> Void, toggleHideBotPanel: @escaping (Bool) -> Void, explainBotPanelLock: @escaping () -> Void, toggleInfiniteRoundVideos: @escaping (Bool) -> Void, toggleGlobalRoundRecording: @escaping (Bool) -> Void, toggleGlobalVoiceRecording: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
+    init(toggleSignal: @escaping (IAyuGhostSignal, Bool) -> Void, toggleLock: @escaping (IAyuGhostSignal) -> Void, toggleInvisibleSend: @escaping (Bool) -> Void, toggleReadOnInteract: @escaping (Bool) -> Void, explainReadOnInteractLock: @escaping () -> Void, toggleRestoreOwnDeletes: @escaping (Bool) -> Void, pickMediaCap: @escaping () -> Void, pickMassDeleteThreshold: @escaping () -> Void, pickMassDeleteGlobalThreshold: @escaping () -> Void, togglePinnedOverBot: @escaping (Bool) -> Void, toggleHideBotPanel: @escaping (Bool) -> Void, explainBotPanelLock: @escaping () -> Void, toggleInfiniteRoundVideos: @escaping (Bool) -> Void, toggleGlobalRoundRecording: @escaping (Bool) -> Void, toggleGlobalVoiceRecording: @escaping (Bool) -> Void, openAppearance: @escaping () -> Void, openLocalization: @escaping () -> Void, openConnection: @escaping () -> Void) {
         self.toggleSignal = toggleSignal
         self.toggleLock = toggleLock
         self.toggleInvisibleSend = toggleInvisibleSend
@@ -788,6 +790,8 @@ private final class IAyuHubArguments {
         self.pickMassDeleteGlobalThreshold = pickMassDeleteGlobalThreshold
         self.togglePinnedOverBot = togglePinnedOverBot
         self.toggleHideBotPanel = toggleHideBotPanel
+        self.toggleReadOnInteract = toggleReadOnInteract
+        self.explainReadOnInteractLock = explainReadOnInteractLock
         self.explainBotPanelLock = explainBotPanelLock
         self.toggleInfiniteRoundVideos = toggleInfiniteRoundVideos
         self.toggleGlobalRoundRecording = toggleGlobalRoundRecording
@@ -875,6 +879,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
     case ghostLockHint(String)
     case sendHeader(String)
     case sendInvisible(String, Bool)
+    // Title, value, and whether the switch can still be moved — invisible send pins it on.
+    case sendReadOnInteract(String, Bool, Bool)
     case sendInfo(String)
     case preserveHeader(String)
     case restoreOwnDeletes(String, Bool)
@@ -907,7 +913,7 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         switch self {
         case .ghostHeader, .ghostSignal, .ghostInfo, .ghostLockHint:
             return IAyuHubSection.ghost.rawValue
-        case .sendHeader, .sendInvisible, .sendInfo:
+        case .sendHeader, .sendInvisible, .sendReadOnInteract, .sendInfo:
             return IAyuHubSection.send.rawValue
         case .preserveHeader, .restoreOwnDeletes, .preserveInfo:
             return IAyuHubSection.preserve.rawValue
@@ -939,7 +945,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case .ghostLockHint: return 21
         case .sendHeader: return 30
         case .sendInvisible: return 31
-        case .sendInfo: return 32
+        case .sendReadOnInteract: return 32
+        case .sendInfo: return 33
         case .preserveHeader: return 40
         case .restoreOwnDeletes: return 41
         case .preserveInfo: return 42
@@ -985,6 +992,8 @@ private enum IAyuHubEntry: ItemListNodeEntry {
             return a == b
         case let (.sendInvisible(a1, a2), .sendInvisible(b1, b2)):
             return a1 == b1 && a2 == b2
+        case let (.sendReadOnInteract(a1, a2, a3), .sendReadOnInteract(b1, b2, b3)):
+            return a1 == b1 && a2 == b2 && a3 == b3
         case let (.sendInfo(a), .sendInfo(b)):
             return a == b
         case let (.preserveHeader(a), .preserveHeader(b)):
@@ -1073,6 +1082,14 @@ private enum IAyuHubEntry: ItemListNodeEntry {
         case let .sendInvisible(title, value):
             return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { newValue in
                 arguments.toggleInvisibleSend(newValue)
+            })
+        case let .sendReadOnInteract(title, value, enabled):
+            // Greyed out rather than hidden while invisible send holds it on, same as the
+            // bot-panel row: a row that vanishes when a switch above moves reads as a bug.
+            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, enabled: enabled, sectionId: self.section, style: .blocks, updated: { newValue in
+                arguments.toggleReadOnInteract(newValue)
+            }, activatedWhileDisabled: {
+                arguments.explainReadOnInteractLock()
             })
         case let .sendInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
@@ -1163,6 +1180,7 @@ private struct IAyuHubState: Equatable {
     var signals: [Bool]
     var locks: [Bool]
     var invisibleSend: Bool
+    var readOnInteract: Bool
     var restoreOwnDeletes: Bool
     var mediaCapMB: Int32
     var massDeleteThreshold: Int32
@@ -1179,6 +1197,7 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         signals: iAyuGhostRows.map { $0.signal.isEnabled },
         locks: iAyuGhostRows.map { $0.signal.isLocked },
         invisibleSend: SGSimpleSettings.shared.iaGhostInvisibleSend,
+        readOnInteract: SGSimpleSettings.shared.iaGhostReadOnInteract,
         restoreOwnDeletes: SGSimpleSettings.shared.iaRestoreOwnDeletes,
         mediaCapMB: SGSimpleSettings.shared.iaMediaMaxDownloadMB,
         massDeleteThreshold: SGSimpleSettings.shared.iaMassDeleteCollapse,
@@ -1224,6 +1243,18 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
             state.invisibleSend = value
             return state
         }
+    }, toggleReadOnInteract: { value in
+        SGSimpleSettings.shared.iaGhostReadOnInteract = value
+        updateState { state in
+            var state = state
+            state.readOnInteract = value
+            return state
+        }
+    }, explainReadOnInteractLock: {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        presentControllerImpl?(textAlertController(context: context, title: nil, text: IAyuStrings.text(.hubReadOnInteractLockedHint), actions: [
+            TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})
+        ]))
     }, toggleRestoreOwnDeletes: { value in
         SGSimpleSettings.shared.iaRestoreOwnDeletes = value
         updateState { state in
@@ -1374,6 +1405,9 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.ghostLockHint(IAyuStrings.text(.hubGhostLockHint)))
         entries.append(.sendHeader(IAyuStrings.text(.hubSendHeader)))
         entries.append(.sendInvisible(IAyuStrings.text(.hubGhostInvisibleSend), state.invisibleSend))
+        // Invisible send forces it on, so the row shows what actually happens rather
+        // than the stored flag — the setting itself is left untouched underneath.
+        entries.append(.sendReadOnInteract(IAyuStrings.text(.hubGhostReadOnInteract), state.readOnInteract || state.invisibleSend, !state.invisibleSend))
         entries.append(.sendInfo(IAyuStrings.text(.hubSendInfo)))
         entries.append(.preserveHeader(IAyuStrings.text(.hubPreserveHeader)))
         entries.append(.restoreOwnDeletes(IAyuStrings.text(.hubRestoreOwnDeletes), state.restoreOwnDeletes))

@@ -22,6 +22,12 @@ public enum UpdateMessageReaction {
 }
 
 public func updateMessageReactionsInteractively(account: Account, messageIds: [MessageId], reactions: [UpdateMessageReaction], isLarge: Bool, storeAsRecentlyUsed: Bool, add: Bool = false) -> Signal<Never, NoError> {
+    // IAyuGram ghost "read on interact": adding a reaction is as visible to the other
+    // side as a reply, so it counts as an interaction. Removing one does not — clearing
+    // a reaction is undoing an interaction, not making a new one.
+    if !reactions.isEmpty, let peerId = messageIds.first?.peerId {
+        iAyuReadOnInteract(account: account, peerId: peerId)
+    }
     return account.postbox.transaction { transaction -> Void in
         guard let chatPeerId = messageIds.first?.peerId else {
             return

@@ -117,6 +117,7 @@ public class SGSimpleSettings {
         case iaGhostHideTyping
         case iaGhostHideConsumed
         case iaGhostInvisibleSend
+        case iaGhostReadOnInteract
         case iaGhostHideStoryViews
         case iaRestoreOwnDeletes
         case iaGhostLockHideReadReceipts
@@ -305,6 +306,7 @@ public class SGSimpleSettings {
         Keys.iaGhostHideTyping.rawValue: false,
         Keys.iaGhostHideConsumed.rawValue: false,
         Keys.iaGhostInvisibleSend.rawValue: false,
+        Keys.iaGhostReadOnInteract.rawValue: true,
         Keys.iaGhostHideStoryViews.rawValue: false,
         Keys.iaRestoreOwnDeletes.rawValue: true,
         Keys.iaGhostLockHideReadReceipts.rawValue: false,
@@ -494,6 +496,14 @@ public class SGSimpleSettings {
     // you online. Off by default — it delays your messages. See EnqueueMessage.
     @UserDefault(key: Keys.iaGhostInvisibleSend.rawValue)
     public var iaGhostInvisibleSend: Bool
+
+    // IAyuGram ghost: push the read position once when you interact with a chat (send a
+    // message, add a reaction), so replying doesn't leave the other side looking at
+    // unread messages under your answer. On by default — without it, hiding read
+    // receipts is more conspicuous than showing them. Forced on while invisible send is
+    // active. See IAyuReadOnInteract.
+    @UserDefault(key: Keys.iaGhostReadOnInteract.rawValue)
+    public var iaGhostReadOnInteract: Bool
 
     // IAyuGram ghost: don't report story views. Cuts BOTH stories.readStories and
     // stories.incrementStoryViews — leaving either one reports half the views.

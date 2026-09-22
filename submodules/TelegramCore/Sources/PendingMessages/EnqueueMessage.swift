@@ -608,6 +608,9 @@ private func opportunisticallyTransformOutgoingMedia(network: Network, postbox: 
 
 public func enqueueMessages(account: Account, peerId: PeerId, messages: [EnqueueMessage]) -> Signal<[MessageId?], NoError> {
     let messages = iAyuApplyInvisibleSend(peerId: peerId, messages: messages)
+    // Ghost "read on interact": sending is the interaction. Same funnel as invisible
+    // send so the two can't disagree about which sends they cover.
+    iAyuReadOnInteract(account: account, peerId: peerId)
     let signal: Signal<[(Bool, EnqueueMessage)], NoError>
     if let transformOutgoingMessageMedia = account.transformOutgoingMessageMedia {
         signal = opportunisticallyTransformOutgoingMedia(network: account.network, postbox: account.postbox, transformOutgoingMessageMedia: transformOutgoingMessageMedia, messages: messages, userInteractive: true)
