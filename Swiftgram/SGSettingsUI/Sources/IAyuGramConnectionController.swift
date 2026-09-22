@@ -16,13 +16,15 @@ private final class IAyuConnectionArguments {
     let updateServerURL: (String) -> Void
     let updateToken: (String) -> Void
     let connectLive: () -> Void
+    let forceResync: () -> Void
     let forceDegraded: () -> Void
     let forceStorageLow: () -> Void
 
-    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void, forceDegraded: @escaping () -> Void, forceStorageLow: @escaping () -> Void) {
+    init(updateServerURL: @escaping (String) -> Void, updateToken: @escaping (String) -> Void, connectLive: @escaping () -> Void, forceResync: @escaping () -> Void, forceDegraded: @escaping () -> Void, forceStorageLow: @escaping () -> Void) {
         self.updateServerURL = updateServerURL
         self.updateToken = updateToken
         self.connectLive = connectLive
+        self.forceResync = forceResync
         self.forceDegraded = forceDegraded
         self.forceStorageLow = forceStorageLow
     }
@@ -31,6 +33,7 @@ private final class IAyuConnectionArguments {
 private enum IAyuConnectionSection: Int32 {
     case connection
     case live
+    case recovery
     case diagnostics
 }
 
@@ -39,7 +42,7 @@ private enum IAyuConnectionSection: Int32 {
 // CFBundleVersion and there is otherwise no way to tell from the phone which binary is
 // actually installed — which is exactly the ambiguity that stalled the capture-health
 // investigation.
-private let iAyuBuildMarker = "unread-and-blobs-1"
+private let iAyuBuildMarker = "read-on-interact-force-resync-1"
 
 // The reported figure, not a verdict: on a box with hundreds of free gigabytes the
 // warning will never fire by itself, so this is what tells "arriving, plenty of room"
@@ -70,6 +73,10 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
     case status(String)
     case liveHeader(String)
     case event(Int, String)
+    case recoveryHeader(String)
+    // Title, and whether a run is in flight — the row is dead while one is.
+    case recoverySync(String, Bool)
+    case recoveryInfo(String)
     case diagHeader(String)
     case diagState(String)
     case diagForce(String)
@@ -79,6 +86,8 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
         switch self {
         case .connectionHeader, .serverURL, .token, .connect, .status:
             return IAyuConnectionSection.connection.rawValue
+        case .recoveryHeader, .recoverySync, .recoveryInfo:
+            return IAyuConnectionSection.recovery.rawValue
         case .liveHeader, .event:
             return IAyuConnectionSection.live.rawValue
         case .diagHeader, .diagState, .diagForce, .diagForceStorage:
@@ -95,6 +104,9 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
         case .status: return 4
         case .liveHeader: return 5
         case let .event(index, _): return 100 + Int32(index)
+        case .recoveryHeader: return 9000
+        case .recoverySync: return 9001
+        case .recoveryInfo: return 9002
         case .diagHeader: return 10000
         case .diagState: return 10001
         case .diagForce: return 10002
@@ -122,6 +134,12 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             return a == b
         case let (.event(a1, a2), .event(b1, b2)):
             return a1 == b1 && a2 == b2
+        case let (.recoveryHeader(a), .recoveryHeader(b)):
+            return a == b
+        case let (.recoverySync(a1, a2), .recoverySync(b1, b2)):
+            return a1 == b1 && a2 == b2
+        case let (.recoveryInfo(a), .recoveryInfo(b)):
+            return a == b
         case let (.diagHeader(a), .diagHeader(b)):
             return a == b
         case let (.diagState(a), .diagState(b)):
@@ -154,6 +172,14 @@ private enum IAyuConnectionEntry: ItemListNodeEntry {
             })
         case let .status(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .recoveryHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .recoverySync(title, running):
+            return ItemListActionItem(presentationData: presentationData, title: title, kind: running ? .disabled : .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
+                arguments.forceResync()
+            })
+        case let .recoveryInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .diagHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .diagState(text):
@@ -179,6 +205,9 @@ private struct IAyuConnectionState: Equatable {
     var token: String
     var status: String
     var events: [IAyuMessageEvent]
+    // A forced re-sync is in flight. Not a spinner: the run is mostly network and media
+    // downloads, so it can take a while, and an alert at the end is what reports it.
+    var resyncing: Bool
     // Bumped to force a re-render after the diagnostics row's value changes underneath
     // it — the health state lives outside this screen's state, so nothing else would.
     var diagTick: Int
@@ -195,6 +224,7 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
         token: SGSimpleSettings.shared.iaSyncClientToken,
         status: "",
         events: [],
+        resyncing: false,
         diagTick: 0
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -203,6 +233,7 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
         statePromise.set(stateValue.modify { f($0) })
     }
     let sessionBox = IAyuSessionBox()
+    var presentControllerImpl: ((ViewController) -> Void)?
 
     let arguments = IAyuConnectionArguments(updateServerURL: { text in
         updateState { state in
@@ -251,6 +282,69 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
                 return state
             }
         }
+    }, forceResync: {
+        if stateValue.with({ $0.resyncing }) {
+            return
+        }
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        var dismissImpl: (() -> Void)?
+        let run: (Int) -> Void = { window in
+            updateState { state in
+                var state = state
+                state.resyncing = true
+                return state
+            }
+            iAyuForceResync(context: context, window: window) { result in
+                updateState { state in
+                    var state = state
+                    state.resyncing = false
+                    return state
+                }
+                let text: String
+                if let error = result.error {
+                    text = IAyuStrings.text(.forceResyncFailed, ["error": error])
+                } else {
+                    var lines = [IAyuStrings.text(.recoveryResult, [
+                        "events": "\(result.events)",
+                        "restored": "\(result.restored)",
+                        "present": "\(result.alreadyPresent)"
+                    ])]
+                    if result.overCap > 0 {
+                        lines.append(IAyuStrings.text(.recoveryResultOverCap, ["over": "\(result.overCap)"]))
+                    }
+                    text = lines.joined(separator: "\n\n")
+                }
+                presentControllerImpl?(textAlertController(context: context, title: nil, text: text, actions: [
+                    TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})
+                ]))
+            }
+        }
+        let windows: [(IAyuStringKey, Int)] = [
+            (.recoveryWindowHour, 3600),
+            (.recoveryWindowSixHours, 6 * 3600),
+            (.recoveryWindowDay, 24 * 3600),
+            (.recoveryWindowWeek, 7 * 24 * 3600)
+        ]
+        var items: [ActionSheetItem] = [ActionSheetTextItem(title: IAyuStrings.text(.recoveryWindowTitle))]
+        for (key, seconds) in windows {
+            items.append(ActionSheetButtonItem(title: IAyuStrings.text(key), action: {
+                dismissImpl?()
+                run(seconds)
+            }))
+        }
+        let actionSheet = ActionSheetController(presentationData: presentationData)
+        dismissImpl = { [weak actionSheet] in
+            actionSheet?.dismissAnimated()
+        }
+        actionSheet.setItemGroups([
+            ActionSheetItemGroup(items: items),
+            ActionSheetItemGroup(items: [
+                ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: {
+                    dismissImpl?()
+                })
+            ])
+        ])
+        presentControllerImpl?(actionSheet)
     }, forceDegraded: {
         // Drives the published state directly, bypassing detection entirely, so the
         // chat-list marker can be verified independently of whether an outage is
@@ -291,6 +385,9 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
                 entries.append(.event(index, iAyuConnectionEventDescription(event)))
             }
         }
+        entries.append(.recoveryHeader(IAyuStrings.text(.recoveryHeader)))
+        entries.append(.recoverySync(state.resyncing ? IAyuStrings.text(.recoveryRunning) : IAyuStrings.text(.recoveryForceSync), state.resyncing))
+        entries.append(.recoveryInfo(IAyuStrings.text(.recoveryInfo)))
         entries.append(.diagHeader("DIAGNOSTICS"))
         entries.append(.diagState("Build: \(iAyuBuildMarker)\nCapture health: \(iAyuCaptureStateDescription(IAyuCaptureHealth.shared.state))\nServer free space: \(iAyuStorageDescription())\nPreserved unread cleared at launch: \(iAyuPreservedUnreadRepairReport())"))
         entries.append(.diagForce("Force the warning on"))
@@ -303,5 +400,9 @@ public func iAyuGramConnectionController(context: AccountContext) -> ViewControl
 
     // sessionBox is retained through `arguments` for the controller's lifetime; the
     // WebSocket is cancelled when the screen is dismissed and the controller released.
-    return ItemListController(context: context, state: signal)
+    let controller = ItemListController(context: context, state: signal)
+    presentControllerImpl = { [weak controller] c in
+        controller?.present(c, in: .window(.root))
+    }
+    return controller
 }

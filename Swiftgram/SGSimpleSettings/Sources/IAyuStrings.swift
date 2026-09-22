@@ -83,6 +83,24 @@ public enum IAyuStringKey: String, CaseIterable {
     case connectionStatusInvalidURL
     case connectionEventNoContent
 
+    // Forced re-sync
+    case recoveryHeader
+    case recoveryForceSync
+    case recoveryInfo
+    case recoveryWindowTitle
+    case recoveryWindowHour
+    case recoveryWindowSixHours
+    case recoveryWindowDay
+    case recoveryWindowWeek
+    case recoveryRunning
+    case recoveryResult
+    case recoveryResultOverCap
+    case forceResyncNotConfigured
+    case forceResyncBadServer
+    case forceResyncBadResponse
+    case forceResyncHTTPError
+    case forceResyncFailed
+
     // Capture health — replaces the chat list title while capture is down
     case captureWarningTitle
     // Same slot, lower priority: the server's disk is nearly full
@@ -236,6 +254,23 @@ Read on interact: writing into a chat or reacting there also marks it read, so y
         .connectionStatusInvalidURL: "Live: invalid URL",
         .connectionEventNoContent: "<no content>",
 
+        .recoveryHeader: "RECOVERY",
+        .recoveryForceSync: "Re-sync from server",
+        .recoveryInfo: "Fetches a recent stretch of the server's log again and brings back anything missing from your chats. Use it when a deleted message was captured but never appeared here. Safe to run twice — messages already in place are left alone.",
+        .recoveryWindowTitle: "How far back?",
+        .recoveryWindowHour: "Last hour",
+        .recoveryWindowSixHours: "Last 6 hours",
+        .recoveryWindowDay: "Last 24 hours",
+        .recoveryWindowWeek: "Last 7 days",
+        .recoveryRunning: "Re-syncing…",
+        .recoveryResult: "{events} events in that window. Restored {restored}; {present} were already in place.",
+        .recoveryResultOverCap: "{over} more are still missing than one run restores — run it again to take the next batch.",
+        .forceResyncNotConfigured: "No companion server configured.",
+        .forceResyncBadServer: "The server URL is not valid.",
+        .forceResyncBadResponse: "The server's answer could not be read. An older server may not understand a time window yet.",
+        .forceResyncHTTPError: "The server answered {code}.",
+        .forceResyncFailed: "Re-sync failed: {error}",
+
         .captureWarningTitle: "⚠️ Capture down",
         .storageWarningTitle: "⚠️ Server disk almost full",
 
@@ -323,6 +358,11 @@ Read on interact: writing into a chat or reacting there also marks it read, so y
                         .connectionStatusConnected, .connectionStatusFailed,
                         .connectionStatusDisconnected, .connectionStatusInvalidURL,
                         .connectionEventNoContent]),
+        ("RECOVERY", [.recoveryHeader, .recoveryForceSync, .recoveryInfo, .recoveryWindowTitle,
+                      .recoveryWindowHour, .recoveryWindowSixHours, .recoveryWindowDay,
+                      .recoveryWindowWeek, .recoveryRunning, .recoveryResult,
+                      .recoveryResultOverCap, .forceResyncNotConfigured, .forceResyncBadServer,
+                      .forceResyncBadResponse, .forceResyncHTTPError, .forceResyncFailed]),
         ("CAPTURE HEALTH", [.captureWarningTitle, .storageWarningTitle]),
         ("PER-CHAT EXCEPTIONS", [.chatExceptionsMenuItem, .chatExceptionsTitle,
                                  .chatExceptionsGhostDisabled, .chatExceptionsGhostInfo,
@@ -412,6 +452,22 @@ Read on interact: writing into a chat or reacting there also marks it read, so y
         case .connectionStatusDisconnected: return "Disconnected"
         case .connectionStatusInvalidURL: return "Invalid URL"
         case .connectionEventNoContent: return "No content"
+        case .recoveryHeader: return "Header"
+        case .recoveryForceSync: return "Re-sync action"
+        case .recoveryInfo: return "Footnote"
+        case .recoveryWindowTitle: return "Window picker title"
+        case .recoveryWindowHour: return "Window: hour"
+        case .recoveryWindowSixHours: return "Window: 6 hours"
+        case .recoveryWindowDay: return "Window: 24 hours"
+        case .recoveryWindowWeek: return "Window: 7 days"
+        case .recoveryRunning: return "Running"
+        case .recoveryResult: return "Result"
+        case .recoveryResultOverCap: return "Result, more left"
+        case .forceResyncNotConfigured: return "Not configured"
+        case .forceResyncBadServer: return "Bad server URL"
+        case .forceResyncBadResponse: return "Bad response"
+        case .forceResyncHTTPError: return "HTTP error"
+        case .forceResyncFailed: return "Failed"
         case .captureWarningTitle: return "Chat list title while capture is down"
         case .storageWarningTitle: return "Chat list title while the server disk is low"
         case .editHistoryMenuItem: return "Menu item"

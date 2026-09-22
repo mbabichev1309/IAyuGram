@@ -562,7 +562,7 @@ func iAyuDeletedStoreMessage(item: IAyuPendingDelete, accountPeerId: PeerId, tra
         forwardInfo: nil,
         authorId: resolvedAuthorId,
         text: text,
-        attributes: [DeletedMessageAttribute(date: timestamp)] + item.extraAttributes,
+        attributes: [DeletedMessageAttribute(date: timestamp, originId: Int32(clamping: event.messageId))] + item.extraAttributes,
         media: media
     )
 }
