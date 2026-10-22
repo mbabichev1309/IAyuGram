@@ -43,6 +43,12 @@ jobs:
           # preview image doesn't have it.
           xcodebuild -downloadComponent MetalToolchain
           xcrun -f metal
+          # The image has 37 GB free; every other Xcode is 10+ GB we don't need.
+          for x in /Applications/Xcode_*.app; do
+            r=$(cd "$x" 2>/dev/null && pwd -P) || continue
+            [ "$r" = "$(cd "$XCODE_APP" && pwd -P)" ] || sudo rm -rf "$r" || true
+          done
+          df -h /
 
       - name: Create canonical source directory
         run: |
@@ -50,6 +56,9 @@ jobs:
           sudo mkdir -p /Users/Shared
           cp -R $GITHUB_WORKSPACE /Users/Shared/
           mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
+          # The original checkout is a second full copy of the tree.
+          find $GITHUB_WORKSPACE -mindepth 1 -delete
+          df -h /
 
       - name: Build the App (unsigned)
         env:
@@ -75,6 +84,18 @@ jobs:
             set -x
             echo "BuildBuddy remote cache enabled"
           fi
+
+          # 3 CPUs / 7 GB: a previous run lost the runner after 76 min of a cold build.
+          {
+            echo "build --jobs=2"
+            echo "build --local_resources=memory=HOST_RAM*.5"
+          } >> .bazelrc
+
+          # Resource trace, so a dead runner still leaves a cause in the log.
+          ( while true; do
+              echo "[res] $(date -u +%H:%M) disk=$(df -h / | awk 'NR==2{print $4}') $(memory_pressure | grep -i 'free percentage')"
+              sleep 60
+            done ) &
 
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
           python3 -u build-system/Make/Make.py \
