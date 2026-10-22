@@ -39,6 +39,10 @@ jobs:
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
           swift --version
+          # Xcode 26+ ships the Metal toolchain as a separate download and the
+          # preview image doesn't have it.
+          xcodebuild -downloadComponent MetalToolchain
+          xcrun -f metal
 
       - name: Create canonical source directory
         run: |
