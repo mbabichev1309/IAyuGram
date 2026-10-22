@@ -80,7 +80,6 @@ jobs:
             --configurationPath="build-system/appstore-configuration.json" \
             --codesigningInformationPath=build-system/fake-codesigning \
             --configuration=release_arm64 \
-            --disableExtensions \
             --buildNumber="$BUILD_NUMBER"
 
           find -L bazel-out -type f -name '*.ipa' -path '*/bin/Telegram/*' ! -path '*.runfiles/*' | head -n 3
