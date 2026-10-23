@@ -283,7 +283,7 @@ public final class InAppPurchaseManager: NSObject {
     }
     
     private func requestProducts() {
-        if ({ return true }()) { return } // MARK: Swiftgram â€” no App Store purchases in this build
+        if ({ return true }()) { return } // MARK: Swiftgram — no App Store purchases in this build
         Queue.mainQueue().async { [weak self] in
             guard let self, self.products.isEmpty, self.productRequest == nil, self.productRequestRetryTimer == nil else {
                 return

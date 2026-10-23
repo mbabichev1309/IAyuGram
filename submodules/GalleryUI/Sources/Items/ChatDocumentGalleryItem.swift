@@ -112,7 +112,7 @@ class ChatDocumentGalleryItemNode: ZoomableContentGalleryItemNode, WKNavigationD
     private var status: EngineMediaResource.FetchStatus?
     
     init(context: AccountContext, presentationData: PresentationData) {
-        // MARK: Swiftgram â€” no UIWebView fallback (iOS 11+ only)
+        // MARK: Swiftgram — no UIWebView fallback (iOS 11+ only)
             let configuration = WKWebViewConfiguration()
             configuration.defaultWebpagePreferences.allowsContentJavaScript = false
             let webView = WKWebView(frame: CGRect(), configuration: configuration)

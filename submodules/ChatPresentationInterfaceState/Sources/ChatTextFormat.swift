@@ -19,7 +19,7 @@ public func chatTextInputAddFormattingAttribute(forceRemoveAll: Bool = false, _ 
         }
         var addAttribute = !coversSelection
         var attributesToRemove: [NSAttributedString.Key] = coversSelection ? [attribute] : []
-        // MARK: Swiftgram â€” "clear formatting" drops every attribute in the selection
+        // MARK: Swiftgram — "clear formatting" drops every attribute in the selection
         if forceRemoveAll {
             addAttribute = false
             var keys = Set<NSAttributedString.Key>()

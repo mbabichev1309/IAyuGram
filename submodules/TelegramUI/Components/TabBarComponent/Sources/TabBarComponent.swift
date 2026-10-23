@@ -383,7 +383,7 @@ public final class TabBarComponent: Component {
         self.selectedId = selectedId
         self.outerInsets = outerInsets
         self.axis = axis
-        // MARK: Swiftgram â€” "show tab names" off renders the compact (title-less) bar
+        // MARK: Swiftgram — "show tab names" off renders the compact (title-less) bar
         self.isCompact = isCompact || !SGSimpleSettings.shared.showTabNames
     }
     
@@ -674,7 +674,7 @@ public final class TabBarComponent: Component {
         func update(component: TabBarComponent, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: ComponentTransition) -> CGSize {
             let innerInset: CGFloat = 4.0
             var availableSize = CGSize(width: min(500.0, availableSize.width), height: availableSize.height)
-            // MARK: Swiftgram â€” narrow bar unless "wide tab bar" is on
+            // MARK: Swiftgram — narrow bar unless "wide tab bar" is on
             if !(SGSimpleSettings.shared.wideTabBar || component.search?.isActive ?? false) {
                 let widthReducer: CGFloat
                 switch component.items.count {
