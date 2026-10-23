@@ -12,6 +12,7 @@ swift_library(
     deps = [
         "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
         "//submodules/Display",
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/AsyncDisplayKit",
         "//submodules/TelegramPresentationData",
         "//submodules/AccountContext",

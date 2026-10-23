@@ -15,11 +15,13 @@ import SGSimpleSettings
 // reached, so the pinned message is not covered but never built at all. Two settings decide
 // it instead: hide the panel outright, or hand the slot to the pinned message when there is
 // one and leave the bot panel to show in its absence.
-private func iAyuShouldShowManagingBotPanel(selectedContext: ChatTitlePanelContext?) -> Bool {
+// Upstream 13.x gave the bar its own slot beside the pinned bar, which fixed the original bug;
+// the settings still apply: hide the bar, or keep only the pinned bar while one is displayed.
+private func iAyuShouldShowManagingBotPanel(displayedTitlePanel: ChatTitleAccessoryPanelNode?) -> Bool {
     if SGSimpleSettings.shared.iaHideBusinessBotPanel {
         return false
     }
-    if SGSimpleSettings.shared.iaPinnedOverBusinessBot, selectedContext == .pinnedMessage {
+    if SGSimpleSettings.shared.iaPinnedOverBusinessBot, displayedTitlePanel is ChatPinnedMessageTitlePanelNode {
         return false
     }
     return true
@@ -78,6 +80,8 @@ func titlePanelForChatPresentationInterfaceState(_ chatPresentationInterfaceStat
             break
         case .quickReplyMessageInput:
             break
+        case .welcomeMessages:
+            break
         case .businessLinkSetup:
             if let currentPanel = currentPanel as? ChatBusinessLinkTitlePanelNode {
                 return currentPanel
@@ -102,7 +106,7 @@ func titlePanelForChatPresentationInterfaceState(_ chatPresentationInterfaceStat
                 case .pinnedMessage:
                     if case .pinnedMessages = chatPresentationInterfaceState.subject {
                     } else {
-                        if let pinnedMessage = chatPresentationInterfaceState.pinnedMessage, pinnedMessage.topMessageId != chatPresentationInterfaceState.interfaceState.messageActionsState.closedPinnedMessageId, !chatPresentationInterfaceState.pendingUnpinnedAllMessages {
+                        if chatPinnedPanelIsVisible(pinnedMessageTopId: chatPresentationInterfaceState.pinnedMessage?.topMessageId, skeletonId: chatPresentationInterfaceState.pinnedMessageSkeletonId, closedPinnedMessageId: chatPresentationInterfaceState.interfaceState.messageActionsState.closedPinnedMessageId, pendingUnpinnedAllMessages: chatPresentationInterfaceState.pendingUnpinnedAllMessages) {
                             selectedContext = context
                             break loop
                         }
@@ -198,14 +202,6 @@ func titlePanelForChatPresentationInterfaceState(_ chatPresentationInterfaceStat
                 panel.interfaceInteraction = interfaceInteraction
                 return panel
             }
-        } else if !chatPresentationInterfaceState.peerIsBlocked && !inhibitTitlePanelDisplay, let contactStatus = chatPresentationInterfaceState.contactStatus, contactStatus.managingBot != nil, iAyuShouldShowManagingBotPanel(selectedContext: selectedContext) {
-            if let currentPanel = currentPanel as? ChatManagingBotTitlePanelNode {
-                return currentPanel
-            } else {
-                let panel = ChatManagingBotTitlePanelNode(context: context)
-                panel.interfaceInteraction = interfaceInteraction
-                return panel
-            }
         }
     }
     
@@ -253,6 +249,68 @@ func titlePanelForChatPresentationInterfaceState(_ chatPresentationInterfaceStat
     }
     
     return nil
+}
+
+/// The "bot manages this chat" bar of a business chat.
+///
+/// It is deliberately NOT one of the mutually exclusive panels returned by
+/// `titlePanelForChatPresentationInterfaceState`: it used to be, ranked above the pinned-message
+/// context, so for as long as a business bot managed a chat the pinned-message bar was replaced by
+/// the bot bar and the pinned messages were unreachable from the chat (bugs.telegram.org/c/45791).
+/// The chat node gives this panel its own slot in the header-panel stack, above the pinned bar,
+/// so both are visible.
+///
+/// `displayedTitlePanel` is the panel `titlePanelForChatPresentationInterfaceState` chose for the
+/// same state. The bot bar still yields to the two dismissable notices that outranked it before,
+/// the peer-actions (report / add contact) bar and the peer-verification bar, but only while one
+/// of them is actually on screen: deciding from the bar's *eligibility* instead would blank the
+/// bot bar for the lifetime of every transient context (an in-progress request, a toast) that
+/// displaces the report bar without showing it.
+func managingBotTitlePanelForChatPresentationInterfaceState(_ chatPresentationInterfaceState: ChatPresentationInterfaceState, context: AccountContext, displayedTitlePanel: ChatTitleAccessoryPanelNode?, currentPanel: ChatManagingBotTitlePanelNode?, interfaceInteraction: ChatPanelInterfaceInteraction?) -> ChatManagingBotTitlePanelNode? {
+    guard let contactStatus = chatPresentationInterfaceState.contactStatus, contactStatus.managingBot != nil else {
+        return nil
+    }
+    if chatPresentationInterfaceState.peerIsBlocked {
+        return nil
+    }
+    switch chatPresentationInterfaceState.mode {
+    case .standard(.embedded), .overlay:
+        return nil
+    default:
+        break
+    }
+    if chatPresentationInterfaceState.renderedPeer?.peer?.restrictionText(platform: "ios", contentSettings: context.currentContentSettings.with { $0 }) != nil {
+        return nil
+    }
+    if chatPresentationInterfaceState.search != nil {
+        return nil
+    }
+    switch chatPresentationInterfaceState.subject {
+    case .messageOptions, .scheduledMessages, .pinnedMessages:
+        return nil
+    case let .customChatContents(customChatContents):
+        if case .businessLinkSetup = customChatContents.kind {
+            return nil
+        }
+    default:
+        break
+    }
+    guard case .peer = chatPresentationInterfaceState.chatLocation else {
+        return nil
+    }
+    if displayedTitlePanel is ChatReportPeerTitlePanelNode || displayedTitlePanel is ChatVerifiedPeerTitlePanelNode {
+        return nil
+    }
+    if !iAyuShouldShowManagingBotPanel(displayedTitlePanel: displayedTitlePanel) {
+        return nil
+    }
+    
+    if let currentPanel {
+        return currentPanel
+    }
+    let panel = ChatManagingBotTitlePanelNode(context: context)
+    panel.interfaceInteraction = interfaceInteraction
+    return panel
 }
 
 func headerTopicsPanelForChatPresentationInterfaceState(_ chatPresentationInterfaceState: ChatPresentationInterfaceState, context: AccountContext, controllerInteraction: ChatControllerInteraction?, interfaceInteraction: ChatPanelInterfaceInteraction?, force: Bool) -> AnyComponent<Empty>? {
