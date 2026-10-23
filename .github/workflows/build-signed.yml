@@ -17,7 +17,9 @@ env:
 
 jobs:
   build:
-    runs-on: macos-15
+    # Telegram 13.x needs Xcode 27.1 (Swift 6.4); only the xcode-27 preview image has it.
+    runs-on: xcode-27
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v2
         with:
@@ -34,6 +36,14 @@ jobs:
           fi
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
+          # Xcode 26+ ships the Metal toolchain as a separate download and the image lacks it.
+          xcodebuild -downloadComponent MetalToolchain
+          # ~37 GB free on this image; every other Xcode is 10+ GB we don't need.
+          for x in /Applications/Xcode_*.app; do
+            r=$(cd "$x" 2>/dev/null && pwd -P) || continue
+            [ "$r" = "$(cd "$XCODE_APP" && pwd -P)" ] || sudo rm -rf "$r" || true
+          done
+          df -h /
 
       - name: Create canonical source directory
         run: |
@@ -41,6 +51,8 @@ jobs:
           sudo mkdir -p /Users/Shared
           cp -R $GITHUB_WORKSPACE /Users/Shared/
           mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
+          # The original checkout is a second full copy of the tree.
+          find $GITHUB_WORKSPACE -mindepth 1 -delete
 
       - name: Build the signed App
         env:
@@ -109,6 +121,17 @@ jobs:
           else
             echo "BUILDBUDDY_API_KEY not set — building without remote cache"
           fi
+
+          # 3 CPUs / 7 GB: an unbounded cold build lost the runner after 76 min (2026-10-22).
+          {
+            echo "build --jobs=2"
+            echo "build --local_resources=memory=HOST_RAM*.5"
+          } >> .bazelrc
+          # Resource trace, so a dead runner still leaves a cause in the log.
+          ( while true; do
+              echo "[res] $(date -u +%H:%M) disk=$(df -h / | awk 'NR==2{print $4}') $(memory_pressure | grep -i 'free percentage')"
+              sleep 60
+            done ) &
 
           # --disableExtensions (added to Make.py build) sets the bazel
           # --//Telegram:disableExtensions=True flag so only the main app is
