@@ -9,6 +9,12 @@ package_group(
     packages = [
         "//Telegram",
         "//Telegram/NotificationService",
+        # MARK: Swiftgram — packages that predate the Postbox -> TelegramEngine refactor
+        "//Swiftgram/SGChatExceptionsUI",
+        "//Swiftgram/SGDebugUI",
+        "//Swiftgram/SGItemListUI",
+        "//Swiftgram/SGProUI",
+        "//Swiftgram/SGSettingsUI",
         "//submodules/AccountContext",
         "//submodules/AvatarNode",
         "//submodules/ChatListUI",

@@ -15,6 +15,7 @@ Telegram/SiriIntents/IntentHandler.swift
 Telegram/SiriIntents/IntentMessages.swift
 Telegram/SiriIntents/SiriSendMessageTarget.swift
 submodules/AccountContext/Sources/FetchMediaUtils.swift
+submodules/AccountContext/Sources/IAyuGlobalRecording.swift
 submodules/AccountContext/Sources/UniversalVideoNode.swift
 submodules/AvatarNode/Sources/AvatarNode.swift
 submodules/AvatarNode/Sources/PeerAvatar.swift
@@ -75,6 +76,7 @@ submodules/TelegramUI/Components/StickerPickerScreen/Sources/StickerPickerScreen
 submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryChatContent.swift
 submodules/TelegramUI/Components/TelegramAccountAuxiliaryMethods/Sources/TelegramAccountAuxiliaryMethods.swift
 submodules/TelegramUI/Sources/AppDelegate.swift
+submodules/TelegramUI/Sources/Chat/IAyuGlobalRecordingChat.swift
 submodules/TelegramUI/Sources/ChatController.swift
 submodules/TelegramUI/Sources/ChatControllerContentData.swift
 submodules/TelegramUI/Sources/ChatControllerNode.swift
@@ -82,6 +84,7 @@ submodules/TelegramUI/Sources/ChatControllerOpenAttachmentMenu.swift
 submodules/TelegramUI/Sources/ChatHistoryEntriesForView.swift
 submodules/TelegramUI/Sources/ChatHistoryListNode.swift
 submodules/TelegramUI/Sources/ChatHistoryViewForLocation.swift
+submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
 submodules/TelegramUI/Sources/CreateGroupController.swift
 submodules/TelegramUI/Sources/DocumentPreviewController.swift
 submodules/TelegramUI/Sources/FetchCachedRepresentations.swift

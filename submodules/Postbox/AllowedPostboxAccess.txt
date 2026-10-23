@@ -14,6 +14,7 @@
 Telegram/NotificationService/Sources/NotificationService.swift
 Telegram/SiriIntents/IntentHandler.swift
 Telegram/SiriIntents/IntentMessages.swift
+submodules/AccountContext/Sources/IAyuGlobalRecording.swift
 submodules/AccountContext/Sources/UniversalVideoNode.swift
 submodules/AccountUtils/Sources/AccountUtils.swift
 submodules/ActionSheetPeerItem/Sources/ActionSheetPeerItem.swift
@@ -212,6 +213,7 @@ submodules/TelegramUI/Sources/ChatControllerContentData.swift
 submodules/TelegramUI/Sources/ChatControllerNode.swift
 submodules/TelegramUI/Sources/ChatControllerOpenMessageShareMenu.swift
 submodules/TelegramUI/Sources/ChatHistoryListNode.swift
+submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
 submodules/TelegramUI/Sources/ChatPinnedMessageTitlePanelNode.swift
 submodules/TelegramUI/Sources/CreateGroupController.swift
 submodules/TelegramUI/Sources/CreatePeerAvatarSetup.swift
