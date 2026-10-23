@@ -1042,10 +1042,10 @@ public final class AccountContextImpl: AccountContext {
                 }
                 
                 let _ = (dataInput
-                |> deliverOnMainQueue).start(next: { [weak self] peer, current in
-                    guard let strongSelf = self else {
-                        return
-                    }
+                |> deliverOnMainQueue).start(next: { peer, current in
+                    // Swiftgram wraps this in makeCall, which already holds self strongly; Swift 6.4
+                    // rejects a weak capture inside it. One-shot signal, so no cycle.
+                    let strongSelf = self
                     guard let peer = peer else {
                         return
                     }
