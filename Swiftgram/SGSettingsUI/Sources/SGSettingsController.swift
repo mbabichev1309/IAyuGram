@@ -685,11 +685,8 @@ public func sgSettingsController(context: AccountContext/*, focusOnItemTag: Int?
             case .languageSettings:
                 pushControllerImpl?(context.sharedContext.makeLocalizationListController(context: context))
             case .contentSettings:
-                let _ = (getSGSettingsURL(context: context) |> deliverOnMainQueue).start(next: { [weak context] url in
-                    guard let strongContext = context else {
-                        return
-                    }
-                    strongContext.sharedContext.applicationBindings.openUrl(url)
+                let _ = (getSGSettingsURL(context: context) |> deliverOnMainQueue).start(next: { url in
+                    context.sharedContext.applicationBindings.openUrl(url)
                 })
         }
     }, searchInput: { searchQuery in
