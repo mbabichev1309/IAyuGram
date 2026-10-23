@@ -140,6 +140,7 @@ jobs:
             --bazelUserRoot="$BAZEL_USER_ROOT" \
             --overrideXcodeVersion \
             build \
+            --continueOnError \
             --configurationPath="build-system/development_configuration.json" \
             --codesigningInformationPath=build-system/real-codesigning \
             --configuration=release_arm64 \
