@@ -1061,8 +1061,9 @@ public final class RichTextEditorChatInputNode: ASDisplayNode, ChatRichTextInput
     public var autocorrectionType: UITextAutocorrectionType = .default
     // MARK: Swiftgram
     public var returnKeyType: UIReturnKeyType {
-        get { self.editorView.composerReturnKeyType }
-        set { self.editorView.composerReturnKeyType = newValue }
+        // Only the legacy editor exposes it; the engine editor keeps the system default.
+        get { (self.editorView as? RichTextEditorView)?.composerReturnKeyType ?? .default }
+        set { (self.editorView as? RichTextEditorView)?.composerReturnKeyType = newValue }
     }
     //
     /// The theme accent the panel passes (`theme.list.itemAccentColor`), applied the way the legacy node
