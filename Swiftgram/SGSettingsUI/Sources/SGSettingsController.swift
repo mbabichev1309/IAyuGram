@@ -139,7 +139,6 @@ private func SGControllerEntries(presentationData: PresentationData, callListSet
     
     let lang = presentationData.strings.baseLanguageCode
     let strings = presentationData.strings
-    let newStr = strings.Settings_New
     var entries: [SGControllerEntry] = []
     
     let id = SGItemListCounter()
