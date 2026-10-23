@@ -14,15 +14,7 @@ config_setting(
     },
 )
 
-flex_dependency = select({
-    ":debug_build": [
-        "@flex_sdk//:FLEX"
-    ],
-    ":fastbuild_build": [
-        "@flex_sdk//:FLEX"
-    ],
-    "//conditions:default": [],
-})
+flex_dependency = [] # FLEX dropped (2026-10); @flex_sdk is no longer in MODULE.bazel
 
 
 swift_library(

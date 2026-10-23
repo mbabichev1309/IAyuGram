@@ -17,7 +17,7 @@ import SGSimpleSettings
 import SGLogging
 import SGPayWall
 import OverlayStatusController
-#if DEBUG
+#if canImport(FLEX) // FLEX is not shipped (dropped 2026-10)
 import FLEX
 #endif
 
@@ -61,7 +61,7 @@ private func SGDebugControllerEntries(presentationData: PresentationData) -> [SG
     var entries: [SGDebugControllerEntry] = []
     
     let id = SGItemListCounter()
-    #if DEBUG
+    #if canImport(FLEX) // FLEX is not shipped (dropped 2026-10)
     entries.append(.action(id: id.count, section: .base, actionType: .flexing, text: "FLEX", kind: .generic))
     entries.append(.action(id: id.count, section: .base, actionType: .fileManager, text: "FileManager", kind: .generic))
     #endif
@@ -71,7 +71,7 @@ private func SGDebugControllerEntries(presentationData: PresentationData) -> [SG
     entries.append(.toggle(id: id.count, section: .base, settingName: .forceImmediateShareSheet, value: SGSimpleSettings.shared.forceSystemSharing, text: "Force System Share Sheet", enabled: true))
     
     entries.append(.action(id: id.count, section: .base, actionType: .restorePurchases, text: "PayWall.RestorePurchases".i18n(presentationData.strings.baseLanguageCode), kind: .generic))
-    #if DEBUG
+    #if canImport(FLEX) // FLEX is not shipped (dropped 2026-10)
     entries.append(.action(id: id.count, section: .base, actionType: .setIAP, text: "Set Pro", kind: .generic))
     #endif
     entries.append(.action(id: id.count, section: .base, actionType: .resetIAP, text: "Reset Pro", kind: .destructive))
@@ -141,11 +141,11 @@ public func sgDebugController(context: AccountContext) -> ViewController {
                 SGLogger.shared.log("SGDebug", "Outgoing translation language cache cleanup succesfull")
                 presentControllerImpl?(okUndoController("OK: Outgoing translation language cache cleaned", presentationData), nil)
         case .flexing:
-            #if DEBUG
+            #if canImport(FLEX) // FLEX is not shipped (dropped 2026-10)
             FLEXManager.shared.toggleExplorer()
             #endif
         case .fileManager:
-            #if DEBUG
+            #if canImport(FLEX) // FLEX is not shipped (dropped 2026-10)
             let baseAppBundleId = Bundle.main.bundleIdentifier!
             let appGroupName = "group.\(baseAppBundleId)"
             let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
@@ -175,7 +175,7 @@ public func sgDebugController(context: AccountContext) -> ViewController {
             nil)
             context.sharedContext.SGIAP?.restorePurchases {}
         case .setIAP:
-            #if DEBUG
+            #if canImport(FLEX) // FLEX is not shipped (dropped 2026-10)
             #endif
         case .resetIAP:
             let updateSettingsSignal = updateSGStatusInteractively(accountManager: context.sharedContext.accountManager, { status in
