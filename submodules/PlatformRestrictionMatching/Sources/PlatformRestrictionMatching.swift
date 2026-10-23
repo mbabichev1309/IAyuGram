@@ -50,7 +50,7 @@ public extension RestrictedContentMessageAttribute {
 }
 
 // MARK: Swiftgram
-public extension Message {
+public extension EngineRawMessage {
     func canRevealContent(contentSettings: ContentSettings) -> Bool {
         if contentSettings.appConfiguration.sgWebSettings.global.canViewMessages && self.flags.contains(.CopyProtected) {
             let messageContentWasUnblocked = self.restrictedContentAttribute != nil && self.isRestricted(platform: "ios", contentSettings: ContentSettings.default) && !self.isRestricted(platform: "ios", contentSettings: contentSettings)
