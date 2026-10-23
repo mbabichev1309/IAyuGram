@@ -24,7 +24,6 @@ enum SettingsSection: Int, CaseIterable {
     case proxy
     case iAyuGram
     case swiftgram
-    case swiftgramPro
     case apps
     case shortcuts
     case advanced

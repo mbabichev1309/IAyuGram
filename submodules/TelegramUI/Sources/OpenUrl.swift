@@ -952,18 +952,6 @@ private func openCheckedExternalUrl(context: AccountContext, urlContext: OpenURL
                                     lastViewController.present(ContactsController(context: context), in: .window(.root), with: ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
                                 }
                                 return
-                            case "pro", "premium", "buy":
-                                if context.sharedContext.immediateSGStatus.status > 1 {
-                                    navigationController?.pushViewController(context.sharedContext.makeSGProController(context: context))
-                                } else {
-                                    if let lastViewController = navigationController?.viewControllers.last as? ViewController {
-                                        if let payWallController = context.sharedContext.makeSGPayWallController(context: context) {
-                                            lastViewController.present(payWallController, in: .window(.root), with: ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
-                                        } else {
-                                            lastViewController.present(context.sharedContext.makeSGUpdateIOSController(), animated: true)
-                                        }
-                                    }
-                                }
                             case "restart":
                                 let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                                 let lang = presentationData.strings.baseLanguageCode
@@ -980,17 +968,6 @@ private func openCheckedExternalUrl(context: AccountContext, urlContext: OpenURL
                                     ),
                                     nil
                                 )
-                            case "restore_purchases", "pro_restore", "validate", "restore":
-                                let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-                                let lang = presentationData.strings.baseLanguageCode
-                                context.sharedContext.presentGlobalController(UndoOverlayController(
-                                        presentationData: presentationData,
-                                        content: .info(title: nil, text: "PayWall.Button.Restoring".i18n(lang), timeout: nil, customUndoText: nil),
-                                        elevatedLayout: false,
-                                        action: { _ in return false }
-                                    ),
-                                nil)
-                                context.sharedContext.SGIAP?.restorePurchases {}
                             default:
                                 break
                         }

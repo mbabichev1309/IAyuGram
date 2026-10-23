@@ -13,7 +13,6 @@ package_group(
         "//Swiftgram/SGChatExceptionsUI",
         "//Swiftgram/SGDebugUI",
         "//Swiftgram/SGItemListUI",
-        "//Swiftgram/SGProUI",
         "//Swiftgram/SGSettingsUI",
         "//submodules/AccountContext",
         "//submodules/AvatarNode",

@@ -102,14 +102,10 @@ private enum SGBoolSetting: String {
     case hideChannelBottomButton
     case confirmCalls
     case swipeForVideoPIP
-    case enableVoipTcp
-    case nyStyleSnow
-    case nyStyleLightning
     case tabBarSearchEnabled
 }
 
 private enum SGOneFromManySetting: String {
-    case nyStyle
     case bottomTabStyle
     case downloadSpeedBoost
     case allChatsTitleLengthOverride
@@ -119,7 +115,6 @@ private enum SGOneFromManySetting: String {
 }
 
 private enum SGSliderSetting: String {
-    case accountColorsSaturation
     case outgoingPhotoQuality
     case stickerSize
 }
@@ -152,15 +147,6 @@ private func SGControllerEntries(presentationData: PresentationData, callListSet
     entries.append(.searchInput(id: id.count, section: .search, title: NSAttributedString(string: "🔍"), text: state.searchQuery ?? "", placeholder: strings.Common_Search))
     
     
-    if SGSimpleSettings.shared.canUseNY {
-        entries.append(.header(id: id.count, section: .trending, text: i18n("Settings.NY.Header", lang), badge: newStr))
-        entries.append(.toggle(id: id.count, section: .trending, settingName: .nyStyleSnow, value: SGSimpleSettings.shared.nyStyle == SGSimpleSettings.NYStyle.snow.rawValue, text: i18n("Settings.NY.Style.snow", lang), enabled: true))
-        entries.append(.toggle(id: id.count, section: .trending, settingName: .nyStyleLightning, value: SGSimpleSettings.shared.nyStyle == SGSimpleSettings.NYStyle.lightning.rawValue, text: i18n("Settings.NY.Style.lightning", lang), enabled: true))
-        // entries.append(.oneFromManySelector(id: id.count, section: .trending, settingName: .nyStyle, text: i18n("Settings.NY.Style", lang), value: i18n("Settings.NY.Style.\(SGSimpleSettings.shared.nyStyle)", lang), enabled: true))
-        entries.append(.notice(id: id.count, section: .trending, text: i18n("Settings.NY.Notice", lang)))
-    } else {
-        id.increment(3)
-    }
     
     if appConfiguration.sgWebSettings.global.canEditSettings {
         entries.append(.disclosure(id: id.count, section: .content, link: .contentSettings, text: i18n("Settings.ContentSettings", lang)))
@@ -239,9 +225,6 @@ private func SGControllerEntries(presentationData: PresentationData, callListSet
     entries.append(.toggle(id: id.count, section: .voiceMessages, settingName: .forceBuiltInMic, value: SGSimpleSettings.shared.forceBuiltInMic, text: i18n("Settings.forceBuiltInMic", lang), enabled: true))
     entries.append(.notice(id: id.count, section: .voiceMessages, text: i18n("Settings.forceBuiltInMic.Notice", lang)))
 
-    entries.append(.header(id: id.count, section: .calls, text: strings.Calls_TabTitle.uppercased(), badge: nil))
-    entries.append(.toggle(id: id.count, section: .calls, settingName: .enableVoipTcp, value: experimentalUISettings.enableVoipTcp, text: "Force TCP", enabled: true))
-    entries.append(.notice(id: id.count, section: .calls, text: "Common.KnowWhatYouDo".i18n(lang)))
     
     entries.append(.header(id: id.count, section: .photo, text: strings.NetworkUsageSettings_MediaImageDataSection, badge: nil))
     entries.append(.header(id: id.count, section: .photo, text: strings.PhotoEditor_QualityTool.uppercased(), badge: nil))
@@ -272,36 +255,6 @@ private func SGControllerEntries(presentationData: PresentationData, callListSet
     entries.append(.toggle(id: id.count, section: .contextMenu, settingName: .contextShowMessageReplies, value: SGSimpleSettings.shared.contextShowMessageReplies, text: strings.Conversation_ContextViewThread, enabled: true))
     entries.append(.toggle(id: id.count, section: .contextMenu, settingName: .contextShowJson, value: SGSimpleSettings.shared.contextShowJson, text: "JSON", enabled: true))
     /* entries.append(.toggle(id: id.count, section: .contextMenu, settingName: .contextShowRestrict, value: SGSimpleSettings.shared.contextShowRestrict, text: strings.Conversation_ContextMenuBan)) */
-    
-    entries.append(.header(id: id.count, section: .accountColors, text: i18n("Settings.CustomColors.Header", lang), badge: nil))
-    entries.append(.header(id: id.count, section: .accountColors, text: i18n("Settings.CustomColors.Saturation", lang), badge: nil))
-    let accountColorSaturation = SGSimpleSettings.shared.accountColorsSaturation
-    entries.append(.percentageSlider(id: id.count, section: .accountColors, settingName: .accountColorsSaturation, value: accountColorSaturation))
-//    let nameColor: PeerNameColor
-//    if let updatedNameColor = state.updatedNameColor {
-//        nameColor = updatedNameColor
-//    } else {
-//        nameColor = .blue
-//    }
-//    let _ = nameColors.get(nameColor, dark: presentationData.theme.overallDarkAppearance)
-//    entries.append(.peerColorPicker(id: entries.count, section: .other,
-//        colors: nameColors,
-//        currentColor: nameColor, // TODO: PeerNameColor(rawValue: <#T##Int32#>)
-//        currentSaturation: accountColorSaturation
-//    ))
-    
-    if accountColorSaturation == 0 {
-        id.increment(100)
-        entries.append(.peerColorDisclosurePreview(id: id.count, section: .accountColors, name: "\(strings.UserInfo_FirstNamePlaceholder) \(strings.UserInfo_LastNamePlaceholder)", color:         presentationData.theme.chat.message.incoming.accentTextColor))
-    } else {
-        id.increment(200)
-        for index in nameColors.displayOrder.prefix(3) {
-            let color: PeerNameColor = PeerNameColor(rawValue: index)
-            let colors = nameColors.get(color, dark: presentationData.theme.overallDarkAppearance)
-            entries.append(.peerColorDisclosurePreview(id: id.count, section: .accountColors, name: "\(strings.UserInfo_FirstNamePlaceholder) \(strings.UserInfo_LastNamePlaceholder)", color: colors.main))
-        }
-    }
-    entries.append(.notice(id: id.count, section: .accountColors, text: i18n("Settings.CustomColors.Saturation.Notice", lang)))
     
     id.increment(10000)
     entries.append(.header(id: id.count, section: .other, text: strings.Appearance_Other.uppercased(), badge: nil))
@@ -506,29 +459,9 @@ public func sgSettingsController(context: AccountContext/*, focusOnItemTag: Int?
             SGSimpleSettings.shared.confirmCalls = value
         case .swipeForVideoPIP:
             SGSimpleSettings.shared.videoPIPSwipeDirection = value ? SGSimpleSettings.VideoPIPSwipeDirection.up.rawValue : SGSimpleSettings.VideoPIPSwipeDirection.none.rawValue
-        case .enableVoipTcp:
-            let _ = (
-                updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
-                        var settings = settings
-                        settings.enableVoipTcp = value
-                        return settings
-                    }
-                )
-            ).start()
-        case .nyStyleSnow:
-            SGSimpleSettings.shared.nyStyle = value ? SGSimpleSettings.NYStyle.snow.rawValue : SGSimpleSettings.NYStyle.default.rawValue
-            simplePromise.set(true) // Trigger update for 'enabled' field of other toggles
-        case .nyStyleLightning:
-            SGSimpleSettings.shared.nyStyle = value ? SGSimpleSettings.NYStyle.lightning.rawValue : SGSimpleSettings.NYStyle.default.rawValue
-            simplePromise.set(true) // Trigger update for 'enabled' field of other toggles
         }
     }, updateSliderValue: { setting, value in
         switch (setting) {
-            case .accountColorsSaturation:
-                if SGSimpleSettings.shared.accountColorsSaturation != value {
-                    SGSimpleSettings.shared.accountColorsSaturation = value
-                    simplePromise.set(true)
-                }
             case .outgoingPhotoQuality:
                 if SGSimpleSettings.shared.outgoingPhotoQuality != value {
                     SGSimpleSettings.shared.outgoingPhotoQuality = value
@@ -656,18 +589,6 @@ public func sgSettingsController(context: AccountContext/*, focusOnItemTag: Int?
                         }
                     }
                     items.append(ActionSheetButtonItem(title: i18n("Settings.Transcription.Backend.\(value.rawValue)", presentationData.strings.baseLanguageCode), color: .accent, action: { [weak actionSheet] in
-                        actionSheet?.dismissAnimated()
-                        setAction(value.rawValue)
-                    }))
-                }
-            case .nyStyle:
-                let setAction: (String) -> Void = { value in
-                    SGSimpleSettings.shared.nyStyle = value
-                    simplePromise.set(true)
-                }
-
-                for value in SGSimpleSettings.NYStyle.allCases {
-                    items.append(ActionSheetButtonItem(title: i18n("Settings.NY.Style.\(value.rawValue)", presentationData.strings.baseLanguageCode), color: .accent, action: { [weak actionSheet] in
                         actionSheet?.dismissAnimated()
                         setAction(value.rawValue)
                     }))

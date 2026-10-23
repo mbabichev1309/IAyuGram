@@ -1184,7 +1184,6 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
     }
     
     // MARK: Swiftgram
-    private var NYNode: WallpaperNYNode?
     //
 
     private var imageContentMode: UIView.ContentMode {
@@ -1866,9 +1865,7 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
                 
         if isFirstLayout && !self.frame.isEmpty {
             self.updateScale()
-            /* MARK: Swiftgram */ if SGSimpleSettings.shared.isNYEnabled && self.NYNode == nil { let nYNode = WallpaperNYNode(); self.addSubnode(nYNode); self.NYNode = nYNode }
         }
-        /* MARK: Swiftgram */ self.NYNode?.frame = CGRect(origin: CGPoint(), size: size); self.NYNode?.updateLayout(size: size)
     }
 
     private var isAnimating = false

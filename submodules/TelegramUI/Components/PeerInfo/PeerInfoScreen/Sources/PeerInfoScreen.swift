@@ -171,7 +171,6 @@ enum PeerInfoContextSubject {
 enum PeerInfoSettingsSection {
     case swiftgram
     case iAyuGram
-    case swiftgramPro
     case avatar
     case edit
     case proxy

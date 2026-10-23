@@ -5,10 +5,8 @@ import TelegramUIPreferences
 import AccountContext
 
 // MARK: Swiftgram
-public let maximumSwiftgramNumberOfAccounts = 500
-public let maximumSafeNumberOfAccounts = 6
-public let maximumNumberOfAccounts = maximumSwiftgramNumberOfAccounts
-public let maximumPremiumNumberOfAccounts = maximumSwiftgramNumberOfAccounts
+public let maximumNumberOfAccounts = 3
+public let maximumPremiumNumberOfAccounts = 4
 
 public func activeAccountsAndPeers(context: AccountContext, includePrimary: Bool = false) -> Signal<((AccountContext, EnginePeer)?, [(AccountContext, EnginePeer, Int32)]), NoError> {
     let sharedContext = context.sharedContext

@@ -44,16 +44,12 @@ sgdeps = [
     "//Swiftgram/SGSimpleSettings:SGSimpleSettings",
 ]
 
-sgsrcs = [
-    "//Swiftgram/SGNY:SGNY"
-]
-
 swift_library(
     name = "WallpaperBackgroundNode",
     module_name = "WallpaperBackgroundNode",
     srcs = glob([
         "Sources/**/*.swift",
-    ]) + sgsrcs,
+    ]),
     copts = [
         "-warnings-as-errors",
     ],

@@ -328,9 +328,6 @@ public extension Peer {
     }
     
     var nameColor: PeerColor? {
-        if SGSimpleSettings.shared.accountColorsSaturation == 0 { // MARK: Swiftgram
-            return nil
-        }
         switch self {
         case let user as TelegramUser:
             if let nameColor = user.nameColor {

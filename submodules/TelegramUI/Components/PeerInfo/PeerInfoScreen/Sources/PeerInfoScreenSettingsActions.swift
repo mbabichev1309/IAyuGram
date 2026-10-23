@@ -57,16 +57,6 @@ extension PeerInfoScreenNode {
             self.controller?.push(sgSettingsController(context: self.context))
         case .iAyuGram:
             self.controller?.push(iAyuGramSettingsController(context: self.context))
-        case .swiftgramPro:
-            if self.context.sharedContext.immediateSGStatus.status > 1 {
-                self.controller?.push(self.context.sharedContext.makeSGProController(context: self.context))
-            } else {
-                if let payWallController = self.context.sharedContext.makeSGPayWallController(context: self.context) {
-                    self.controller?.present(payWallController, in: .window(.root), with: ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
-                } else {
-                    self.controller?.present(self.context.sharedContext.makeSGUpdateIOSController(), animated: true)
-                }
-            }
         case .avatar:
             self.controller?.openAvatarForEditing()
         case .edit:
@@ -240,15 +230,15 @@ extension PeerInfoScreenNode {
                 guard let strongSelf = self else {
                     return
                 }
-                var maximumAvailableAccounts: Int = maximumSwiftgramNumberOfAccounts
+                var maximumAvailableAccounts: Int = 3
                 if accountAndPeer?.1.isPremium == true && !strongSelf.context.account.testingEnvironment {
-                    maximumAvailableAccounts = maximumSwiftgramNumberOfAccounts
+                    maximumAvailableAccounts = 4
                 }
                 var count: Int = 1
                 for (accountContext, peer, _) in accountsAndPeers {
                     if !accountContext.account.testingEnvironment {
                         if peer.isPremium {
-                            maximumAvailableAccounts = maximumSwiftgramNumberOfAccounts
+                            maximumAvailableAccounts = 4
                         }
                         count += 1
                     }
@@ -268,23 +258,7 @@ extension PeerInfoScreenNode {
                         navigationController.pushViewController(controller)
                     }
                 } else {
-                    // MARK: Swiftgram
-                    if count + 1 > maximumSafeNumberOfAccounts {
-                        let presentationData = strongSelf.context.sharedContext.currentPresentationData.with { $0 }
-                        let alertController = textAlertController(context: strongSelf.context, updatedPresentationData: strongSelf.controller?.updatedPresentationData, title: presentationData.strings.ChatList_DeleteSavedMessagesConfirmationTitle, text: i18n("Auth.AccountBackupReminder", presentationData.strings.baseLanguageCode), actions: [
-                            TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {
-                                strongSelf.context.sharedContext.beginNewAuth(testingEnvironment: strongSelf.context.account.testingEnvironment)
-                            })
-                        ])
-                        if let controller = strongSelf.controller {
-                            controller.present(alertController, in: .window(.root))
-                        } else {
-                            strongSelf.context.sharedContext.beginNewAuth(testingEnvironment: strongSelf.context.account.testingEnvironment)
-                        }
-                    } else {
-                        strongSelf.context.sharedContext.beginNewAuth(testingEnvironment: strongSelf.context.account.testingEnvironment)
-                    }
-                    //
+                    strongSelf.context.sharedContext.beginNewAuth(testingEnvironment: strongSelf.context.account.testingEnvironment)
                 }
             })
         case .logout:
