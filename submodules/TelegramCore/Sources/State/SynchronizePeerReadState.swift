@@ -268,6 +268,11 @@ private func pushPeerReadState(network: Network, postbox: Postbox, stateManager:
         if maxIncomingReadIndex.timestamp <= 0 {
             return .single(readState)
         }
+        // IAyuGram ghost mode: a secret chat's read mark is pushed here and nowhere else.
+        // Report success so the operation clears instead of being retried.
+        if iAyuHidesReadPush(peerId: peerId) {
+            return .single(readState)
+        }
         return inputSecretChat(postbox: postbox, peerId: peerId)
         |> mapToSignal { inputPeer -> Signal<PeerReadState, PeerReadStateValidationError> in
             // A rejected push must not be retried: the operation is only cleared once it

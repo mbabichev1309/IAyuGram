@@ -478,11 +478,15 @@ private class ReplyThreadHistoryContextImpl {
             }
 
             if let subPeerId {
-                let signal = strongSelf.account.network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeerId, maxId: messageIndex.id.id))
+                var signal: Signal<Never, NoError> = strongSelf.account.network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeerId, maxId: messageIndex.id.id))
                 |> `catch` { _ -> Signal<Api.Bool, NoError> in
                     return .single(.boolFalse)
                 }
                 |> ignoreValues
+                // IAyuGram ghost mode: the read moves locally, the push is dropped.
+                if iAyuHidesReadPush(peerId: strongSelf.peerId) {
+                    signal = .complete()
+                }
                 if revalidate {
                 }
                 strongSelf.readDisposable.set(signal.start())
@@ -492,6 +496,11 @@ private class ReplyThreadHistoryContextImpl {
                     return .single(.boolFalse)
                 }
                 |> ignoreValues
+                // IAyuGram ghost mode: the read moves locally, the push is dropped. The
+                // revalidation below is a plain fetch and still runs.
+                if iAyuHidesReadPush(peerId: strongSelf.peerId) {
+                    signal = .complete()
+                }
                 if revalidate {
                     let validateSignal = strongSelf.account.network.request(Api.functions.messages.getDiscussionMessage(peer: inputPeer, msgId: Int32(clamping: threadId)))
                     |> map { result -> (MessageId?, Int) in

@@ -200,7 +200,7 @@ public final class IAyuStrings {
         .hubSendHeader: "SENDING",
         .hubGhostInvisibleSend: "Invisible send",
         .hubGhostReadOnInteract: "Read on interact",
-        .hubReadOnInteractLockedHint: "Invisible send keeps this on: a message that arrives with no sign of you, sitting above messages you never read, gives the whole thing away.",
+        .hubReadOnInteractLockedHint: "Invisible send keeps this off: marking the chat read would show you online at the moment you hit send, which is exactly what invisible send exists to hide.",
         .hubPreserveHeader: "PRESERVED MESSAGES",
         .hubRestoreOwnDeletes: "Restore my own deletions",
         .hubPreserveInfo: "When you delete your own message for everyone, bring it back in the chat. Off means your own deletions stay deleted; messages other people delete are unaffected either way.",
@@ -212,7 +212,7 @@ public final class IAyuStrings {
         .chatExceptionsPreservationDisabled: "Don't restore deleted messages here",
         .chatExceptionsPreservationInfo: "Deleted messages in this chat are not brought back. They are still captured and stored on your companion server — this hides them, it does not stop recording them.",
 
-        .hubSendInfo: "Invisible send: your messages go out as scheduled ones about 12 seconds later, so sending does not show you online. Expect that delay on every message. Not part of Ghost mode — it stays as you set it.\n\nRead on interact: writing into a chat or reacting there also marks it read, so your reply does not sit under messages you supposedly never read. It briefly shows you online; with \"Don't go online\" on, an offline packet follows at once. Always on while invisible send is. It only matters while read receipts are hidden — with them on, Telegram already reads the chat for you.",
+        .hubSendInfo: "Invisible send: your messages go out as scheduled ones about 12 seconds later, so sending does not show you online. Expect that delay on every message. Not part of Ghost mode — it stays as you set it.\n\nRead on interact: writing into a chat or reacting there also marks it read, so your reply does not sit under messages you supposedly never read. It briefly shows you online; with \"Don't go online\" on, an offline packet follows at once. Always off while invisible send is on. It only matters while read receipts are hidden — with them on, Telegram already reads the chat for you.",
         .hubGhostInfo: "Others won't see your read receipts, online status, typing, when you play their voice/video messages, or when you view their stories.",
         .hubMediaHeader: "PRESERVED MEDIA",
         .hubMediaCap: "Download limit",
@@ -414,7 +414,7 @@ public final class IAyuStrings {
         case .chatExceptionsPreservationInfo: return "Preservation footnote"
         case .hubGhostInvisibleSend: return "Invisible send"
         case .hubGhostReadOnInteract: return "Read on interact"
-        case .hubReadOnInteractLockedHint: return "Forced-on hint"
+        case .hubReadOnInteractLockedHint: return "Forced-off hint"
         case .hubGhostInfo: return "Ghost footnote"
         case .hubMediaHeader: return "Media header"
         case .hubMediaCap: return "Download limit"

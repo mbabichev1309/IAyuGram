@@ -1405,9 +1405,9 @@ public func iAyuGramSettingsController(context: AccountContext) -> ViewControlle
         entries.append(.ghostLockHint(IAyuStrings.text(.hubGhostLockHint)))
         entries.append(.sendHeader(IAyuStrings.text(.hubSendHeader)))
         entries.append(.sendInvisible(IAyuStrings.text(.hubGhostInvisibleSend), state.invisibleSend))
-        // Invisible send forces it on, so the row shows what actually happens rather
+        // Invisible send forces it off, so the row shows what actually happens rather
         // than the stored flag — the setting itself is left untouched underneath.
-        entries.append(.sendReadOnInteract(IAyuStrings.text(.hubGhostReadOnInteract), state.readOnInteract || state.invisibleSend, !state.invisibleSend))
+        entries.append(.sendReadOnInteract(IAyuStrings.text(.hubGhostReadOnInteract), state.readOnInteract && !state.invisibleSend, !state.invisibleSend))
         entries.append(.sendInfo(IAyuStrings.text(.hubSendInfo)))
         entries.append(.preserveHeader(IAyuStrings.text(.hubPreserveHeader)))
         entries.append(.restoreOwnDeletes(IAyuStrings.text(.hubRestoreOwnDeletes), state.restoreOwnDeletes))

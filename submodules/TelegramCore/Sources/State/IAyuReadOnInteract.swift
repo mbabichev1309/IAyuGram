@@ -25,9 +25,11 @@ private let iAyuPushedReads = Atomic<[PeerId: Int32]>(value: [:])
 
 /// Whether an interaction with this peer should push the read position.
 ///
-/// Forced on while invisible send diverts this peer's messages: that mode exists to make
-/// a message arrive with no trace of you being there, and unread messages sitting under
-/// your reply are exactly such a trace. Outside it the user's switch decides.
+/// Forced OFF while invisible send diverts this peer's messages: that mode exists so that
+/// sending leaves no sign of you being online, and the read push is exactly such a sign —
+/// readHistory bumps you online on the server, and the read mark lands at the moment you
+/// hit send rather than when the scheduled message goes out. The stored switch is left
+/// untouched and applies again once invisible send is off.
 public func iAyuReadOnInteractApplies(peerId: PeerId) -> Bool {
     // Nothing to compensate for unless the read mark is actually being withheld here.
     guard IAyuGhost.applies(.hideReadReceipts, peerId: peerId.toInt64()) else {
@@ -38,7 +40,19 @@ public func iAyuReadOnInteractApplies(peerId: PeerId) -> Bool {
     guard peerId.namespace != Namespaces.Peer.SecretChat else {
         return false
     }
-    return SGSimpleSettings.shared.iaGhostReadOnInteract || iAyuInvisibleSendApplies(peerId: peerId)
+    if iAyuInvisibleSendApplies(peerId: peerId) {
+        return false
+    }
+    return SGSimpleSettings.shared.iaGhostReadOnInteract
+}
+
+/// Ghost gate for the read RPCs that do not go through readHistory: forum topics and
+/// comment threads (messages.readDiscussion), a channel's direct-message threads
+/// (messages.readSavedHistory) and secret chats (messages.readEncryptedHistory). Each
+/// gives the other side a read mark exactly like readHistory does, so each is cut the
+/// same way. Local read state still moves; only the push is dropped.
+func iAyuHidesReadPush(peerId: PeerId) -> Bool {
+    return IAyuGhost.applies(.hideReadReceipts, peerId: peerId.toInt64())
 }
 
 /// Mark this chat read, locally and on the server, bypassing the ghost gate.
